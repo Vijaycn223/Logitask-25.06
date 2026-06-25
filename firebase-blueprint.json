@@ -1,0 +1,236 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with operations role",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "description": "Email address of the user" },
+        "name": { "type": "string", "description": "Full name of the user" },
+        "role": { "type": "string", "enum": ["Super Admin", "Admin", "Store Manager", "Team Leader", "Engineer"] },
+        "orgId": { "type": "string", "description": "Assigned organization ID" },
+        "password": { "type": "string", "description": "Simulation password" }
+      },
+      "required": ["email", "name", "role"]
+    },
+    "Organisation": {
+      "title": "Organisation",
+      "description": "Multi-tenant workspace organization portal details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique organization ID" },
+        "name": { "type": "string", "description": "Company or organization name" },
+        "siteCode": { "type": "string", "description": "Unique Uppercase operational site code" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "siteCode"]
+    },
+    "SKU": {
+      "title": "SKU",
+      "description": "Product SKU detail",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "SKU identifier (e.g. SKU-001)" },
+        "name": { "type": "string", "description": "Name / Description of the product" },
+        "lowStockAlert": { "type": "integer", "description": "Safety stock threshold for alerts" }
+      },
+      "required": ["id", "name", "lowStockAlert"]
+    },
+    "InventoryItem": {
+      "title": "InventoryItem",
+      "description": "Main warehouse inventory stock for a SKU",
+      "type": "object",
+      "properties": {
+        "skuId": { "type": "string", "description": "SKU ID reference" },
+        "qty": { "type": "integer", "description": "Available stock quantity" },
+        "unitPrice": { "type": "number", "description": "Standard unit cost of the item" }
+      },
+      "required": ["skuId", "qty", "unitPrice"]
+    },
+    "VanStockItem": {
+      "title": "VanStockItem",
+      "description": "Represents stock item allocated on an engineer van",
+      "type": "object",
+      "properties": {
+        "skuId": { "type": "string" },
+        "qty": { "type": "integer" }
+      },
+      "required": ["skuId", "qty"]
+    },
+    "EngineerStockDoc": {
+      "title": "EngineerStockDoc",
+      "description": "Document holding stock items allocated for an engineer",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "description": "Engineer email address" },
+        "stock": { "type": "array", "description": "List of van stock items" }
+      },
+      "required": ["email", "stock"]
+    },
+    "AccessorySale": {
+      "title": "AccessorySale",
+      "description": "Represents an accessory item sold during a service call",
+      "type": "object",
+      "properties": {
+        "skuId": { "type": "string" },
+        "qty": { "type": "integer" },
+        "saleValue": { "type": "number" },
+        "adminIncentive": { "type": "number", "description": "Assigned incentive by Admin" }
+      },
+      "required": ["skuId", "qty", "saleValue"]
+    },
+    "ProductivityLog": {
+      "title": "ProductivityLog",
+      "description": "Daily productivity log submitted by engineer",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Log identifier" },
+        "engEmail": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "callsClosed": { "type": "integer" },
+        "accessories": { "type": "array" },
+        "status": { "type": "string", "enum": ["Pending", "Validated", "Approved", "Rejected"] },
+        "tlNote": { "type": "string" },
+        "adminNote": { "type": "string" }
+      },
+      "required": ["id", "engEmail", "date", "callsClosed", "accessories", "status"]
+    },
+    "AttendanceRecordDoc": {
+      "title": "AttendanceRecordDoc",
+      "description": "Attendance history of all engineers mapped by date",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "dates": { "type": "object", "description": "Key-value of YYYY-MM-DD to Present/Absent" }
+      },
+      "required": ["email", "dates"]
+    },
+    "StockRequest": {
+      "title": "StockRequest",
+      "description": "Stock requisition request from an engineer van",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "engEmail": { "type": "string" },
+        "skuId": { "type": "string" },
+        "qty": { "type": "integer" },
+        "date": { "type": "string" },
+        "status": { "type": "string", "enum": ["Pending", "Approved", "Rejected", "Revoke-Pending", "Revoked"] },
+        "note": { "type": "string" }
+      },
+      "required": ["id", "engEmail", "skuId", "qty", "date", "status"]
+    },
+    "PurchaseInward": {
+      "title": "PurchaseInward",
+      "description": "Record of stock purchases inwards to main warehouse",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "skuId": { "type": "string" },
+        "qty": { "type": "integer" },
+        "unitPrice": { "type": "number" },
+        "date": { "type": "string" },
+        "vendor": { "type": "string" },
+        "invoiceNo": { "type": "string" },
+        "status": { "type": "string", "enum": ["Pending", "Approved", "Rejected"] }
+      },
+      "required": ["id", "skuId", "qty", "unitPrice", "date", "vendor", "invoiceNo", "status"]
+    },
+    "RevokeRequest": {
+      "title": "RevokeRequest",
+      "description": "Request to revoke previous stock allocation and return to warehouse",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "reqId": { "type": "string" },
+        "engEmail": { "type": "string" },
+        "skuId": { "type": "string" },
+        "qty": { "type": "integer" },
+        "date": { "type": "string" },
+        "status": { "type": "string", "enum": ["Revoke-Pending", "Revoked", "Rejected"] }
+      },
+      "required": ["id", "reqId", "engEmail", "skuId", "qty", "date", "status"]
+    },
+    "LPRequest": {
+      "title": "LPRequest",
+      "description": "Local Purchase requests raised by Team Leader",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "jobId": { "type": "string" },
+        "spareCost": { "type": "number" },
+        "serviceCost": { "type": "number" },
+        "tlEmail": { "type": "string" },
+        "date": { "type": "string" },
+        "status": { "type": "string", "enum": ["Pending", "Claim pending", "Claim submitted", "Claim forwarded", "Claim approved", "Rejected"] },
+        "description": { "type": "string" }
+      },
+      "required": ["id", "jobId", "spareCost", "serviceCost", "tlEmail", "date", "status"]
+    },
+    "AttendanceRequest": {
+      "title": "AttendanceRequest",
+      "description": "Attendance marking request awaiting Admin approvals",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "engEmail": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "status": { "type": "string", "enum": ["Present", "Leave"] },
+        "submittedBy": { "type": "string" },
+        "submittedByRole": { "type": "string", "enum": ["Team Leader", "Store Manager"] },
+        "approvedStatus": { "type": "string", "enum": ["Pending", "Approved", "Rejected"] }
+      },
+      "required": ["id", "engEmail", "date", "status", "submittedBy", "submittedByRole", "approvedStatus"]
+    }
+  },
+  "firestore": {
+    "/organisations/{orgId}": {
+      "schema": { "$ref": "#/entities/Organisation" },
+      "description": "Multi-tenant workspace organization portal details"
+    },
+    "/users/{email}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User operational records indexed by email"
+    },
+    "/skus/{skuId}": {
+      "schema": { "$ref": "#/entities/SKU" },
+      "description": "Inventory SKU references"
+    },
+    "/inventory/{skuId}": {
+      "schema": { "$ref": "#/entities/InventoryItem" },
+      "description": "Main warehouse stocks per SKU ID"
+    },
+    "/engineerStock/{email}": {
+      "schema": { "$ref": "#/entities/EngineerStockDoc" },
+      "description": "Engineer vehicle stock collections"
+    },
+    "/productivityLogs/{logId}": {
+      "schema": { "$ref": "#/entities/ProductivityLog" },
+      "description": "Operational service and accessory sales logs"
+    },
+    "/attendance/{email}": {
+      "schema": { "$ref": "#/entities/AttendanceRecordDoc" },
+      "description": "Engineering attendance mapping records"
+    },
+    "/stockRequests/{reqId}": {
+      "schema": { "$ref": "#/entities/StockRequest" },
+      "description": "Van replenishment requisitions"
+    },
+    "/purchaseInward/{inwardId}": {
+      "schema": { "$ref": "#/entities/PurchaseInward" },
+      "description": "Supplier purchase invoices and intake states"
+    },
+    "/revokeRequests/{revokeId}": {
+      "schema": { "$ref": "#/entities/RevokeRequest" },
+      "description": "Stock return request items"
+    },
+    "/lpRequests/{reqId}": {
+      "schema": { "$ref": "#/entities/LPRequest" },
+      "description": "Local purchase requests from Team Leader awaiting Admin approvals"
+    },
+    "/attendanceRequests/{reqId}": {
+      "schema": { "$ref": "#/entities/AttendanceRequest" },
+      "description": "Attendance marking requests raised by Team Leader or Store Manager awaiting Admin approval"
+    }
+  }
+}

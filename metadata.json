@@ -1,0 +1,6 @@
+{
+  "name": "LogiTask",
+  "description": "A comprehensive field operations management dashboard with modular role support, store inventory, purchase approvals, and monthly P&L tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

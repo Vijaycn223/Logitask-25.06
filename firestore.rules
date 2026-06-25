@@ -1,0 +1,208 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper Functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-\\.:@]+$');
+    }
+
+    // Entity validations
+    function isValidUser(data) {
+      return data.keys().hasAll(['email', 'name', 'role']) 
+        && data.email is string && data.email.size() > 0 && data.email.size() <= 128
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 128
+        && data.role is string && data.role in ['Super Admin', 'Admin', 'Store Manager', 'Team Leader', 'Engineer']
+        && (!('orgId' in data) || data.orgId is string)
+        && (!('password' in data) || data.password is string);
+    }
+
+    function isValidOrganisation(data) {
+      return data.keys().hasAll(['id', 'name', 'siteCode'])
+        && data.id is string && data.id.size() > 0 && data.id.size() <= 64
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 128
+        && data.siteCode is string && data.siteCode.size() > 0 && data.siteCode.size() <= 32;
+    }
+
+    function isValidSku(data) {
+      return data.keys().hasAll(['id', 'name', 'lowStockAlert'])
+        && data.id is string && data.id.size() <= 64
+        && data.name is string && data.name.size() <= 256
+        && data.lowStockAlert is int && data.lowStockAlert >= 0;
+    }
+
+    function isValidInventoryItem(data) {
+      return data.keys().hasAll(['skuId', 'qty', 'unitPrice'])
+        && data.skuId is string && data.skuId.size() <= 64
+        && data.qty is int && data.qty >= 0
+        && data.unitPrice >= 0;
+    }
+
+    function isValidEngineerStock(data) {
+      return data.keys().hasAll(['email', 'stock'])
+        && data.email is string && data.email.size() <= 128
+        && data.stock is list;
+    }
+
+    function isValidProductivityLog(data) {
+      return data.keys().hasAll(['id', 'engEmail', 'date', 'callsClosed', 'accessories', 'status'])
+        && data.id is string && data.id.size() <= 64
+        && data.engEmail is string && data.engEmail.size() <= 128
+        && data.date is string && data.date.size() <= 32
+        && data.callsClosed is int && data.callsClosed >= 0
+        && data.accessories is list
+        && data.status is string && data.status in ['Pending', 'Validated by TL', 'Validated by SM', 'Approved', 'Rejected'];
+    }
+
+    function isValidAttendanceRequest(data) {
+      return data.keys().hasAll(['id', 'engEmail', 'date', 'status', 'submittedBy', 'submittedByRole', 'approvedStatus'])
+        && data.id is string && data.id.size() <= 64
+        && data.engEmail is string && data.engEmail.size() <= 128
+        && data.date is string && data.date.size() <= 32
+        && data.status is string && data.status in ['Present', 'Leave']
+        && data.submittedBy is string && data.submittedBy.size() <= 128
+        && data.submittedByRole is string && data.submittedByRole in ['Team Leader', 'Store Manager']
+        && data.approvedStatus is string && data.approvedStatus in ['Pending', 'Approved', 'Rejected'];
+    }
+
+    function isValidAttendanceRecord(data) {
+      return data.keys().hasAll(['email', 'dates'])
+        && data.email is string && data.email.size() <= 128
+        && data.dates is map;
+    }
+
+    function isValidStockRequest(data) {
+      return data.keys().hasAll(['id', 'engEmail', 'skuId', 'qty', 'date', 'status'])
+        && data.id is string && data.id.size() <= 64
+        && data.engEmail is string && data.engEmail.size() <= 128
+        && data.skuId is string && data.skuId.size() <= 64
+        && data.qty is int && data.qty > 0
+        && data.date is string && data.date.size() <= 32
+        && data.status is string && data.status in ['Pending', 'Approved', 'Rejected', 'Revoke-Pending', 'Revoked'];
+    }
+
+    function isValidPurchaseInward(data) {
+      return data.keys().hasAll(['id', 'skuId', 'qty', 'unitPrice', 'date', 'vendor', 'invoiceNo', 'status'])
+        && data.id is string && data.id.size() <= 64
+        && data.skuId is string && data.skuId.size() <= 64
+        && data.qty is int && data.qty >= 0
+        && data.unitPrice >= 0
+        && data.date is string && data.date.size() <= 32
+        && data.vendor is string && data.vendor.size() <= 128
+        && data.invoiceNo is string && data.invoiceNo.size() <= 128
+        && data.status is string && data.status in ['Pending', 'Approved', 'Rejected'];
+    }
+
+    function isValidRevokeRequest(data) {
+      return data.keys().hasAll(['id', 'reqId', 'engEmail', 'skuId', 'qty', 'date', 'status'])
+        && data.id is string && data.id.size() <= 64
+        && data.reqId is string && data.reqId.size() <= 64
+        && data.engEmail is string && data.engEmail.size() <= 128
+        && data.skuId is string && data.skuId.size() <= 64
+        && data.qty is int && data.qty > 0
+        && data.date is string && data.date.size() <= 32
+        && data.status is string && data.status in ['Revoke-Pending', 'Revoked', 'Rejected'];
+    }
+
+    function isValidLPRequest(data) {
+      return data.keys().hasAll(['id', 'jobId', 'spareCost', 'serviceCost', 'tlEmail', 'date', 'status'])
+        && data.id is string && data.id.size() <= 64
+        && data.jobId is string && data.jobId.size() <= 64
+        && data.spareCost >= 0
+        && data.serviceCost >= 0
+        && data.tlEmail is string && data.tlEmail.size() <= 128
+        && data.date is string && data.date.size() <= 32
+        && data.status is string && data.status in ['Pending', 'Claim pending', 'Claim submitted', 'Claim forwarded', 'Claim approved', 'Rejected'];
+    }
+
+    // Rules matching individual collections
+    match /organisations/{orgId} {
+      allow read: if true;
+      allow create, update: if isValidId(orgId) && isValidOrganisation(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /users/{email} {
+      allow read: if true;
+      allow create, update: if isValidId(email) && isValidUser(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /skus/{skuId} {
+      allow read: if true;
+      allow create, update: if isValidId(skuId) && isValidSku(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /inventory/{skuId} {
+      allow read: if true;
+      allow create, update: if isValidId(skuId) && isValidInventoryItem(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /engineerStock/{email} {
+      allow read: if true;
+      allow create, update: if isValidId(email) && isValidEngineerStock(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /productivityLogs/{logId} {
+      allow read: if true;
+      allow create, update: if isValidId(logId) && isValidProductivityLog(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /attendance/{email} {
+      allow read: if true;
+      allow create, update: if isValidId(email) && isValidAttendanceRecord(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /stockRequests/{reqId} {
+      allow read: if true;
+      allow create, update: if isValidId(reqId) && isValidStockRequest(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /purchaseInward/{inwardId} {
+      allow read: if true;
+      allow create, update: if isValidId(inwardId) && isValidPurchaseInward(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /revokeRequests/{revokeId} {
+      allow read: if true;
+      allow create, update: if isValidId(revokeId) && isValidRevokeRequest(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /lpRequests/{reqId} {
+      allow read: if true;
+      allow create, update: if isValidId(reqId) && isValidLPRequest(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /attendanceRequests/{reqId} {
+      allow read: if true;
+      allow create, update: if isValidId(reqId) && isValidAttendanceRequest(incoming());
+      allow delete: if isSignedIn();
+    }
+  }
+}
