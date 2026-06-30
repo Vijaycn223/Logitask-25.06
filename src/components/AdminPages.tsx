@@ -103,6 +103,103 @@ function AdminPagesInner({
   // --- 1. PRODUCTIVITY QUEUE STATE & LOGIC ---
   const [adApproveTab, setAdApproveTab] = useState<'pending' | 'processed'>('pending');
 
+  const [vanStockSortKey, setVanStockSortKey] = useState<'profile' | 'sku' | 'description' | 'qty'>('profile');
+  const [vanStockSortAsc, setVanStockSortAsc] = useState<boolean>(true);
+
+  const toggleVanStockSort = (key: 'profile' | 'sku' | 'description' | 'qty') => {
+    if (vanStockSortKey === key) {
+      setVanStockSortAsc(!vanStockSortAsc);
+    } else {
+      setVanStockSortKey(key);
+      setVanStockSortAsc(true);
+    }
+  };
+
+  // Warehouse stocks sorting
+  const [whStockSortKey, setWhStockSortKey] = useState<'sku' | 'name' | 'qty' | 'price' | 'value'>('sku');
+  const [whStockSortAsc, setWhStockSortAsc] = useState<boolean>(true);
+
+  const toggleWhStockSort = (key: 'sku' | 'name' | 'qty' | 'price' | 'value') => {
+    if (whStockSortKey === key) {
+      setWhStockSortAsc(!whStockSortAsc);
+    } else {
+      setWhStockSortKey(key);
+      setWhStockSortAsc(true);
+    }
+  };
+
+  // Purchase shipments sorting
+  const [shipmentSortKey, setShipmentSortKey] = useState<'id' | 'sku' | 'name' | 'qty' | 'vendor' | 'value' | 'status'>('id');
+  const [shipmentSortAsc, setShipmentSortAsc] = useState<boolean>(true);
+
+  const toggleShipmentSort = (key: 'id' | 'sku' | 'name' | 'qty' | 'vendor' | 'value' | 'status') => {
+    if (shipmentSortKey === key) {
+      setShipmentSortAsc(!shipmentSortAsc);
+    } else {
+      setShipmentSortKey(key);
+      setShipmentSortAsc(true);
+    }
+  };
+
+  // Engineer Performance Roster sorting
+  const [perfRosterSortKey, setPerfRosterSortKey] = useState<'name' | 'present' | 'calls' | 'revenue' | 'rcpVal' | 'rcpQty' | 'perCall'>('name');
+  const [perfRosterSortAsc, setPerfRosterSortAsc] = useState<boolean>(true);
+
+  const togglePerfRosterSort = (key: 'name' | 'present' | 'calls' | 'revenue' | 'rcpVal' | 'rcpQty' | 'perCall') => {
+    if (perfRosterSortKey === key) {
+      setPerfRosterSortAsc(!perfRosterSortAsc);
+    } else {
+      setPerfRosterSortKey(key);
+      setPerfRosterSortAsc(true);
+    }
+  };
+
+  // Processed Records Ledger in LP Approvals sorting
+  const [ledgerSortKey, setLedgerSortKey] = useState<'id' | 'job' | 'supervisor' | 'date' | 'spares' | 'services' | 'total' | 'status'>('id');
+  const [ledgerSortAsc, setLedgerSortAsc] = useState<boolean>(true);
+
+  const toggleLedgerSort = (key: 'id' | 'job' | 'supervisor' | 'date' | 'spares' | 'services' | 'total' | 'status') => {
+    if (ledgerSortKey === key) {
+      setLedgerSortAsc(!ledgerSortAsc);
+    } else {
+      setLedgerSortKey(key);
+      setLedgerSortAsc(true);
+    }
+  };
+
+  // Audit log cargo tracking sorting
+  const [cargoSortKey, setCargoSortKey] = useState<'id' | 'item' | 'vendor' | 'date' | 'qty' | 'price' | 'value' | 'status'>('id');
+  const [cargoSortAsc, setCargoSortAsc] = useState<boolean>(true);
+
+  const toggleCargoSort = (key: 'id' | 'item' | 'vendor' | 'date' | 'qty' | 'price' | 'value' | 'status') => {
+    if (cargoSortKey === key) {
+      setCargoSortAsc(!cargoSortAsc);
+    } else {
+      setCargoSortKey(key);
+      setCargoSortAsc(true);
+    }
+  };
+
+  // Payroll Processed Queue sorting
+  const [payrollSortKey, setPayrollSortKey] = useState<'id' | 'name' | 'date' | 'calls' | 'gross' | 'rcpVal' | 'rcpQty' | 'payout' | 'status'>('id');
+  const [payrollSortAsc, setPayrollSortAsc] = useState<boolean>(true);
+
+  const togglePayrollSort = (key: 'id' | 'name' | 'date' | 'calls' | 'gross' | 'rcpVal' | 'rcpQty' | 'payout' | 'status') => {
+    if (payrollSortKey === key) {
+      setPayrollSortAsc(!payrollSortAsc);
+    } else {
+      setPayrollSortKey(key);
+      setPayrollSortAsc(true);
+    }
+  };
+
+  const renderSortIndicator = (currentKey: string, activeKey: string, ascending: boolean) => {
+    if (activeKey === currentKey) {
+      return ascending ? ' ▲' : ' ▼';
+    }
+    return '';
+  };
+
   const handleApproveAttendanceRequest = (reqId: string, approve: boolean) => {
     if (!onUpdateAttendanceRequests) return;
     const targetReq = attendanceRequests.find(r => r.id === reqId);
@@ -593,102 +690,7 @@ function AdminPagesInner({
   const [invEngStockSelector, setInvEngStockSelector] = useState('');
   const [activeInventoryTab, setActiveInventoryTab] = useState<'warehouse' | 'shipments' | 'engineer'>('warehouse');
 
-  const [vanStockSortKey, setVanStockSortKey] = useState<'profile' | 'sku' | 'description' | 'qty'>('profile');
-  const [vanStockSortAsc, setVanStockSortAsc] = useState<boolean>(true);
 
-  const toggleVanStockSort = (key: 'profile' | 'sku' | 'description' | 'qty') => {
-    if (vanStockSortKey === key) {
-      setVanStockSortAsc(!vanStockSortAsc);
-    } else {
-      setVanStockSortKey(key);
-      setVanStockSortAsc(true);
-    }
-  };
-
-  // Warehouse stocks sorting
-  const [whStockSortKey, setWhStockSortKey] = useState<'sku' | 'name' | 'qty' | 'price' | 'value'>('sku');
-  const [whStockSortAsc, setWhStockSortAsc] = useState<boolean>(true);
-
-  const toggleWhStockSort = (key: 'sku' | 'name' | 'qty' | 'price' | 'value') => {
-    if (whStockSortKey === key) {
-      setWhStockSortAsc(!whStockSortAsc);
-    } else {
-      setWhStockSortKey(key);
-      setWhStockSortAsc(true);
-    }
-  };
-
-  // Purchase shipments sorting
-  const [shipmentSortKey, setShipmentSortKey] = useState<'id' | 'sku' | 'name' | 'qty' | 'vendor' | 'value' | 'status'>('id');
-  const [shipmentSortAsc, setShipmentSortAsc] = useState<boolean>(true);
-
-  const toggleShipmentSort = (key: 'id' | 'sku' | 'name' | 'qty' | 'vendor' | 'value' | 'status') => {
-    if (shipmentSortKey === key) {
-      setShipmentSortAsc(!shipmentSortAsc);
-    } else {
-      setShipmentSortKey(key);
-      setShipmentSortAsc(true);
-    }
-  };
-
-  // Engineer Performance Roster sorting
-  const [perfRosterSortKey, setPerfRosterSortKey] = useState<'name' | 'present' | 'calls' | 'revenue' | 'rcpVal' | 'rcpQty' | 'perCall'>('name');
-  const [perfRosterSortAsc, setPerfRosterSortAsc] = useState<boolean>(true);
-
-  const togglePerfRosterSort = (key: 'name' | 'present' | 'calls' | 'revenue' | 'rcpVal' | 'rcpQty' | 'perCall') => {
-    if (perfRosterSortKey === key) {
-      setPerfRosterSortAsc(!perfRosterSortAsc);
-    } else {
-      setPerfRosterSortKey(key);
-      setPerfRosterSortAsc(true);
-    }
-  };
-
-  // Processed Records Ledger in LP Approvals sorting
-  const [ledgerSortKey, setLedgerSortKey] = useState<'id' | 'job' | 'supervisor' | 'date' | 'spares' | 'services' | 'total' | 'status'>('id');
-  const [ledgerSortAsc, setLedgerSortAsc] = useState<boolean>(true);
-
-  const toggleLedgerSort = (key: 'id' | 'job' | 'supervisor' | 'date' | 'spares' | 'services' | 'total' | 'status') => {
-    if (ledgerSortKey === key) {
-      setLedgerSortAsc(!ledgerSortAsc);
-    } else {
-      setLedgerSortKey(key);
-      setLedgerSortAsc(true);
-    }
-  };
-
-  // Audit log cargo tracking sorting
-  const [cargoSortKey, setCargoSortKey] = useState<'id' | 'item' | 'vendor' | 'date' | 'qty' | 'price' | 'value' | 'status'>('id');
-  const [cargoSortAsc, setCargoSortAsc] = useState<boolean>(true);
-
-  const toggleCargoSort = (key: 'id' | 'item' | 'vendor' | 'date' | 'qty' | 'price' | 'value' | 'status') => {
-    if (cargoSortKey === key) {
-      setCargoSortAsc(!cargoSortAsc);
-    } else {
-      setCargoSortKey(key);
-      setCargoSortAsc(true);
-    }
-  };
-
-  // Payroll Processed Queue sorting
-  const [payrollSortKey, setPayrollSortKey] = useState<'id' | 'name' | 'date' | 'calls' | 'gross' | 'rcpVal' | 'rcpQty' | 'payout' | 'status'>('id');
-  const [payrollSortAsc, setPayrollSortAsc] = useState<boolean>(true);
-
-  const togglePayrollSort = (key: 'id' | 'name' | 'date' | 'calls' | 'gross' | 'rcpVal' | 'rcpQty' | 'payout' | 'status') => {
-    if (payrollSortKey === key) {
-      setPayrollSortAsc(!payrollSortAsc);
-    } else {
-      setPayrollSortKey(key);
-      setPayrollSortAsc(true);
-    }
-  };
-
-  const renderSortIndicator = (currentKey: string, activeKey: string, ascending: boolean) => {
-    if (activeKey === currentKey) {
-      return ascending ? ' ▲' : ' ▼';
-    }
-    return '';
-  };
 
   const inventoryValueSum = inventory.reduce((s, i) => s + i.qty * i.unitPrice, 0);
 
