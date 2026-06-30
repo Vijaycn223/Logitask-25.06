@@ -107,8 +107,20 @@ export interface RevokeRequest {
   qty: number;
   date: string; // YYYY-MM-DD
   status: 'Revoke-Pending' | 'Revoked' | 'Rejected';
+  reason?: string;
   orgId?: string; // organization ID
 }
+
+export interface ReturnRequest {
+  id: string; // e.g. RR-001
+  engEmail: string;
+  skuId: string;
+  qty: number;
+  date: string; // YYYY-MM-DD
+  status: 'Pending' | 'Approved' | 'Rejected';
+  orgId?: string; // organization ID
+}
+
 
 export type LPRequestStatus = 'Pending' | 'Claim pending' | 'Claim submitted' | 'Claim forwarded' | 'Claim approved' | 'Rejected';
 

@@ -22,7 +22,8 @@ import {
   Sparkles,
   DollarSign,
   X,
-  Key
+  Key,
+  Boxes
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -44,8 +45,7 @@ const SIDEBAR_ITEMS: Record<UserRole, Array<{ type: 'section'; label: string } |
   'Admin': [
     { type: 'section', label: 'Workflows' },
     { type: 'item', page: 'admin-approvals', label: 'Approval Queue', icon: CheckSquare },
-    { type: 'item', page: 'admin-purchase-approve', label: 'Purchase Approvals', icon: Truck },
-    { type: 'item', page: 'admin-revoke-approve', label: 'Revoke Approvals', icon: RotateCcw },
+    { type: 'item', page: 'admin-inventory-approve', label: 'Inventory Approvals', icon: Boxes },
     { type: 'item', page: 'admin-lp-approvals', label: 'LP Approvals', icon: DollarSign },
     { type: 'section', label: 'Reports' },
     { type: 'item', page: 'admin-engineer-dashboard', label: 'Engineer Dashboard', icon: LayoutDashboard },
@@ -67,6 +67,8 @@ const SIDEBAR_ITEMS: Record<UserRole, Array<{ type: 'section'; label: string } |
     { type: 'item', page: 'store-inward', label: 'Purchase Inward', icon: Truck },
     { type: 'item', page: 'store-requests', label: 'Stock Requests', icon: Inbox },
     { type: 'item', page: 'store-inventory', label: 'Inventory Report', icon: Layers },
+    { type: 'section', label: 'Registry' },
+    { type: 'item', page: 'store-sku-registry', label: 'SKU Registry', icon: Tag },
   ],
   'Team Leader': [
     { type: 'section', label: 'Overview' },
@@ -166,13 +168,6 @@ export function Sidebar({ currentUser, activeTab, onPageChange, onLogout, onClos
               className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-900 transition"
             >
               <Key className="h-5 w-5 text-slate-400" />
-            </button>
-            <button
-              onClick={onLogout}
-              title="Log Out"
-              className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-900 transition"
-            >
-              <LogOut className="h-5 w-5 text-slate-400" />
             </button>
           </div>
         </div>

@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { User, SKU, InventoryItem, StockRequest, PurchaseInward, LPRequest, ProductivityLog, AttendanceRequest, AttendanceRecord } from '../types';
+import { User, SKU, InventoryItem, StockRequest, PurchaseInward, LPRequest, ProductivityLog, AttendanceRequest, AttendanceRecord, ReturnRequest } from '../types';
 import { getSku, getInvItem, getUser, fmtDate, fmtCur, genId, getMonthRange } from '../utils';
 import {
   Boxes,
@@ -12,7 +12,7 @@ import {
   Inbox,
   AlertTriangle,
   AlertOctagon,
-  TrendingDown,
+  TrendingUp,
   Trash,
   Plus,
   Send,
@@ -28,8 +28,11 @@ import {
   ArrowRight,
   Calendar,
   ListRestart,
-  Search
+  Search,
+  Tag,
+  RotateCcw
 } from 'lucide-react';
+
 
 interface StoreManagerPagesProps {
   currentUser: User;
@@ -43,6 +46,7 @@ interface StoreManagerPagesProps {
   productivityLogs: ProductivityLog[];
   attendanceRequests: AttendanceRequest[];
   attendance?: AttendanceRecord;
+  returnRequests?: ReturnRequest[];
   onAddAttendanceRequest: (req: AttendanceRequest) => void;
   onUpdateAttendanceRequests: (reqs: AttendanceRequest[]) => void;
   onUpdateLogs: (l: ProductivityLog[]) => void;
@@ -51,7 +55,10 @@ interface StoreManagerPagesProps {
   onUpdatePurchaseInward?: (pi: PurchaseInward[]) => void;
   onApproveStockRequest: (id: string, status: 'Approved' | 'Rejected') => void;
   onSubmitRevoke: (reqId: string) => void;
+  onProcessReturnRequest: (id: string, status: 'Approved' | 'Rejected') => void;
   onAddToast: (msg: string, type?: 'success' | 'error') => void;
+  onUpdateSkus: (skus: SKU[]) => void;
+  onUpdateInventory: (inventory: InventoryItem[]) => void;
 }
 
 export function StoreManagerPages({
@@ -66,6 +73,7 @@ export function StoreManagerPages({
   productivityLogs,
   attendanceRequests = [],
   attendance = {},
+  returnRequests = [],
   onAddAttendanceRequest,
   onUpdateAttendanceRequests,
   onUpdateLogs,
@@ -74,11 +82,62 @@ export function StoreManagerPages({
   onUpdatePurchaseInward,
   onApproveStockRequest,
   onSubmitRevoke,
+  onProcessReturnRequest,
   onAddToast,
+  onUpdateSkus,
+  onUpdateInventory,
 }: StoreManagerPagesProps) {
   // Store Manager Approvals Local Tab State
   const [smQueueTab, setSmQueueTab] = useState<'pending' | 'done'>('pending');
   const [smNotes, setSmNotes] = useState<Record<string, string>>({});
+  const [processingStockRequestIds, setProcessingStockRequestIds] = useState<string[]>([]);
+  const [processingProductivityIds, setProcessingProductivityIds] = useState<string[]>([]);
+
+  // SKU Registry State
+  const [skuIdInput, setSkuIdInput] = useState('');
+  const [skuNameInput, setSkuNameInput] = useState('');
+  const [skuAlertInput, setSkuAlertInput] = useState('');
+
+  const handleRegisterNewSku = (e: React.FormEvent) => {
+    e.preventDefault();
+    const id = skuIdInput.trim().toUpperCase();
+    const name = skuNameInput.trim();
+    const alertQty = parseInt(skuAlertInput, 10);
+
+    if (!id || !name || isNaN(alertQty) || alertQty < 0) {
+      onAddToast('Please complete all SKU fields carefully', 'error');
+      return;
+    }
+
+    if (skus.find((s) => s.id === id)) {
+      onAddToast('SKU ID already exists in registry list!', 'error');
+      return;
+    }
+
+    const newSku: SKU = { id, name, lowStockAlert: alertQty };
+    const updatedSkus = [...skus, newSku];
+
+    // Seed inside key inventories
+    const updatedInventory = [...inventory, { skuId: id, qty: 0, unitPrice: 0 }];
+
+    onUpdateSkus(updatedSkus);
+    onUpdateInventory(updatedInventory);
+
+    setSkuIdInput('');
+    setSkuNameInput('');
+    setSkuAlertInput('');
+    onAddToast(`SKU ${id} registered into warehouse inventory!`, 'success');
+  };
+
+  const handleSMApproveStockRequest = (id: string, status: 'Approved' | 'Rejected') => {
+    if (processingStockRequestIds.includes(id)) return;
+    setProcessingStockRequestIds((prev) => [...prev, id]);
+
+    setTimeout(() => {
+      onApproveStockRequest(id, status);
+      setProcessingStockRequestIds((prev) => prev.filter((x) => x !== id));
+    }, 1000);
+  };
 
   // Search and filter states for SM Validation Queue
   const [smSearchQuery, setSmSearchQuery] = useState('');
@@ -123,23 +182,29 @@ export function StoreManagerPages({
 
   const handleSMAction = (logId: string, action: 'Validated by SM' | 'Rejected') => {
     const note = smNotes[logId] || '';
-    const updated = productivityLogs.map(l => {
-      if (l.id === logId) {
-        return {
-          ...l,
-          status: action,
-          adminNote: note,
-        };
-      }
-      return l;
-    });
-    onUpdateLogs(updated);
-    onAddToast(action === 'Validated by SM' ? 'Entry successfully validated and forwarded to Admin!' : 'Log rejected and sent back to Engineer.', 'success');
-    setSmNotes(prev => {
-      const copy = { ...prev };
-      delete copy[logId];
-      return copy;
-    });
+    if (processingProductivityIds.includes(logId)) return;
+    setProcessingProductivityIds((prev) => [...prev, logId]);
+
+    setTimeout(() => {
+      const updated = productivityLogs.map(l => {
+        if (l.id === logId) {
+          return {
+            ...l,
+            status: action,
+            adminNote: note,
+          };
+        }
+        return l;
+      });
+      onUpdateLogs(updated);
+      onAddToast(action === 'Validated by SM' ? 'Entry successfully validated and forwarded to Admin!' : 'Log rejected and sent back to Engineer.', 'success');
+      setSmNotes(prev => {
+        const copy = { ...prev };
+        delete copy[logId];
+        return copy;
+      });
+      setProcessingProductivityIds((prev) => prev.filter((id) => id !== logId));
+    }, 1000);
   };
 
   // Stat calculations
@@ -163,7 +228,7 @@ export function StoreManagerPages({
   const [piToDateFilter, setPiToDateFilter] = useState('');
 
   // Stock Request Tab State
-  const [srActiveTab, setSrActiveTab] = useState<'pending' | 'processed'>('pending');
+  const [srActiveTab, setSrActiveTab] = useState<'pending' | 'processed' | 'returns'>('pending');
 
   // Search and filter states for Stock Requests
   const [srSearchQuery, setSrSearchQuery] = useState('');
@@ -174,6 +239,22 @@ export function StoreManagerPages({
   const processedRequests = stockRequests.filter((r) => r.status !== 'Pending');
 
   const filteredPendingRequests = pendingRequests.filter((r) => {
+    const engineer = getUser(users, r.engEmail);
+    const item = getSku(skus, r.skuId);
+    const matchesSearch =
+      r.id.toLowerCase().includes(srSearchQuery.toLowerCase()) ||
+      engineer.name.toLowerCase().includes(srSearchQuery.toLowerCase()) ||
+      r.engEmail.toLowerCase().includes(srSearchQuery.toLowerCase()) ||
+      r.skuId.toLowerCase().includes(srSearchQuery.toLowerCase()) ||
+      item.name.toLowerCase().includes(srSearchQuery.toLowerCase()) ||
+      r.date.toLowerCase().includes(srSearchQuery.toLowerCase());
+    
+    const matchesEng = !srSelectedEng || r.engEmail === srSelectedEng;
+    const matchesSku = !srSelectedSku || r.skuId === srSelectedSku;
+    return matchesSearch && matchesEng && matchesSku;
+  });
+
+  const filteredReturnRequests = (returnRequests || []).filter((r) => {
     const engineer = getUser(users, r.engEmail);
     const item = getSku(skus, r.skuId);
     const matchesSearch =
@@ -744,6 +825,16 @@ export function StoreManagerPages({
           >
             Processed ({processedRequests.length})
           </button>
+          <button
+            onClick={() => setSrActiveTab('returns')}
+            className={`px-4 py-3 text-sm font-bold border-b-2 transition ${
+              srActiveTab === 'returns'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            Van Returns ({(returnRequests || []).filter(r => r.status === 'Pending').length} pending)
+          </button>
         </div>
 
         {/* Search & Filter Controls */}
@@ -818,7 +909,7 @@ export function StoreManagerPages({
           )}
         </div>
 
-        {srActiveTab === 'pending' ? (
+        {srActiveTab === 'pending' && (
           <div className="space-y-4">
             {filteredPendingRequests.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center text-slate-400">
@@ -853,9 +944,16 @@ export function StoreManagerPages({
                           {fmtDate(r.date)} – Requested: <span className="underline">{r.qty} units of {item.name}</span>
                         </div>
                       </div>
-                      <span className="inline-flex self-start items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs font-bold text-amber-800">
-                        Pending Dispatch
-                      </span>
+                      <div className="flex flex-col items-end gap-1.5 self-start">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs font-bold text-amber-800">
+                          Pending Dispatch
+                        </span>
+                        {processingStockRequestIds.includes(r.id) && (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-550 border border-amber-600 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-white animate-pulse">
+                            Processing...
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3 rounded-xl bg-slate-50 border border-slate-100 p-3.5 text-xs font-semibold">
@@ -882,17 +980,20 @@ export function StoreManagerPages({
 
                     <div className="flex justify-end gap-2.5">
                       <button
-                        onClick={() => onApproveStockRequest(r.id, 'Rejected')}
-                        className="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100 px-4 py-2.5 text-xs font-bold tracking-wide transition"
+                        type="button"
+                        disabled={processingStockRequestIds.includes(r.id)}
+                        onClick={() => handleSMApproveStockRequest(r.id, 'Rejected')}
+                        className="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100 px-4 py-2.5 text-xs font-bold tracking-wide transition disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         Reject Request
                       </button>
                       <button
-                        disabled={!hasSufficient}
-                        onClick={() => onApproveStockRequest(r.id, 'Approved')}
+                        type="button"
+                        disabled={!hasSufficient || processingStockRequestIds.includes(r.id)}
+                        onClick={() => handleSMApproveStockRequest(r.id, 'Approved')}
                         className="rounded-xl bg-emerald-600 text-white hover:bg-slate-900 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-2.5 text-xs font-bold tracking-wide transition"
                       >
-                        Approve & Dispatch
+                        {processingStockRequestIds.includes(r.id) ? 'Processing...' : 'Approve & Dispatch'}
                       </button>
                     </div>
                   </div>
@@ -900,7 +1001,9 @@ export function StoreManagerPages({
               })
             )}
           </div>
-        ) : (
+        )}
+
+        {srActiveTab === 'processed' && (
           <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
             <h2 className="font-display text-sm font-bold text-slate-950 mb-4">Historical Requests Ledger</h2>
             <div className="overflow-x-auto text-sm font-medium">
@@ -971,6 +1074,93 @@ export function StoreManagerPages({
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {srActiveTab === 'returns' && (
+          <div className="space-y-4">
+            {filteredReturnRequests.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center text-slate-400">
+                <RotateCcw className="mx-auto h-12 w-12 text-slate-300 mb-2" />
+                <h3 className="font-bold text-slate-900 text-lg">No return requests found</h3>
+                <p className="text-xs text-slate-400 mt-1">Try adjusting your filters or wait for engineers to submit return requests.</p>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm overflow-x-auto text-sm font-medium">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-100">
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Request ID</th>
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Engineer</th>
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">SKU Code</th>
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Item Name</th>
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Qty returning</th>
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Date</th>
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Status</th>
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {filteredReturnRequests.map((r) => {
+                      const engUser = getUser(users, r.engEmail);
+                      const details = getSku(skus, r.skuId);
+                      return (
+                        <tr key={r.id} className="hover:bg-slate-50/50">
+                          <td className="py-3 px-3 text-xs text-slate-400">{r.id}</td>
+                          <td className="py-3 px-3">
+                            <strong>{engUser.name}</strong>
+                            <span className="block text-[10px] text-slate-400">{r.engEmail}</span>
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className="font-mono text-xs font-bold text-slate-700 bg-slate-100 rounded-lg px-2 py-0.5">
+                              {r.skuId}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-slate-900">{details.name}</td>
+                          <td className="py-3 px-3 font-semibold text-slate-800">-{r.qty} units</td>
+                          <td className="py-3 px-3 text-slate-500">{fmtDate(r.date)}</td>
+                          <td className="py-3 px-3">
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold border ${
+                                r.status === 'Approved'
+                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                                  : r.status === 'Rejected'
+                                  ? 'bg-rose-50 border-rose-200 text-rose-800'
+                                  : 'bg-amber-50 border-amber-200 text-amber-800'
+                              }`}
+                            >
+                              {r.status}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            {r.status === 'Pending' ? (
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => onProcessReturnRequest(r.id, 'Approved')}
+                                  className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-slate-900 transition shadow-xs"
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => onProcessReturnRequest(r.id, 'Rejected')}
+                                  className="inline-flex items-center gap-1 rounded-lg bg-rose-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-slate-900 transition shadow-xs"
+                                >
+                                  Reject
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-slate-350">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1441,9 +1631,16 @@ export function StoreManagerPages({
                         </h3>
                         <span className="text-xs text-slate-450 block">{engineer.email}</span>
                       </div>
-                      <div className="text-right">
-                        <span className="text-xs font-semibold text-slate-400 block">Duty Date</span>
-                        <strong className="text-sm text-slate-800">{fmtDate(l.date)}</strong>
+                      <div className="text-right flex flex-col items-end gap-1.5">
+                        <div>
+                          <span className="text-xs font-semibold text-slate-400 block">Duty Date</span>
+                          <strong className="text-sm text-slate-800">{fmtDate(l.date)}</strong>
+                        </div>
+                        {processingProductivityIds.includes(l.id) && (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-550 border border-amber-600 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-white animate-pulse">
+                            Processing...
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -1507,6 +1704,8 @@ export function StoreManagerPages({
 
                     <div className="flex justify-end gap-2.5 pt-1">
                       <button
+                        type="button"
+                        disabled={processingProductivityIds.includes(l.id)}
                         onClick={() => {
                           if (!smNotes[l.id]) {
                             onAddToast('Please fill feedback note before rejecting', 'error');
@@ -1514,15 +1713,17 @@ export function StoreManagerPages({
                           }
                           handleSMAction(l.id, 'Rejected');
                         }}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-rose-205 bg-rose-50 text-rose-800 hover:bg-rose-100 px-4 py-2 text-xs font-bold transition"
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-rose-205 bg-rose-50 text-rose-800 hover:bg-rose-100 px-4 py-2 text-xs font-bold transition disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <ThumbsDown className="h-4 w-4" /> Reject
                       </button>
                       <button
+                        type="button"
+                        disabled={processingProductivityIds.includes(l.id)}
                         onClick={() => handleSMAction(l.id, 'Validated by SM')}
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 px-4 py-2 text-xs font-bold transition shadow-sm"
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 px-4 py-2 text-xs font-bold transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        <ThumbsUp className="h-4 w-4" /> Validate Log
+                        <ThumbsUp className="h-4 w-4" /> {processingProductivityIds.includes(l.id) ? 'Processing...' : 'Validate Log'}
                       </button>
                     </div>
                   </div>
@@ -1895,6 +2096,97 @@ export function StoreManagerPages({
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (activeTab === 'store-sku-registry') {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="font-display text-2xl font-extrabold text-slate-950 font-sans">SKU Registry Directory</h1>
+          <p className="text-sm font-medium text-slate-400">Introduce new product lines or adjust safety bounds alarm limits</p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+          {/* Creator form */}
+          <div className="rounded-2xl border border-slate-205 bg-white p-5 shadow-sm">
+            <h2 className="font-display text-sm font-bold text-slate-950 mb-4 font-sans">Catalog New SKU Code</h2>
+            <form onSubmit={handleRegisterNewSku} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold tracking-wider text-slate-500 mb-1">SKU ID</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. SKU-009"
+                  value={skuIdInput}
+                  onChange={(e) => setSkuIdInput(e.target.value)}
+                  className="w-full rounded-xl border border-slate-202 bg-white px-3.5 py-3 text-xs font-semibold focus:border-indigo-650 focus:ring-4 focus:ring-indigo-150 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold tracking-wider text-slate-500 mb-1">Item Name</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Copper Pipe range"
+                  value={skuNameInput}
+                  onChange={(e) => setSkuNameInput(e.target.value)}
+                  className="w-full rounded-xl border border-slate-202 bg-white px-3.5 py-3 text-xs font-semibold focus:border-indigo-650 focus:ring-4 focus:ring-indigo-150 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold tracking-wider text-slate-500 mb-1">Min Stock Level</label>
+                <input
+                  type="number"
+                  required
+                  min="0"
+                  placeholder="e.g. 20 (Alarms store coordinator once stocks are lower)"
+                  value={skuAlertInput}
+                  onChange={(e) => setSkuAlertInput(e.target.value)}
+                  className="w-full rounded-xl border border-slate-202 bg-white px-3.5 py-3 text-xs font-semibold focus:border-indigo-650 focus:ring-4 focus:ring-indigo-150 outline-none"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-indigo-600 py-3 text-xs font-bold text-white shadow-md shadow-indigo-600/10 hover:bg-slate-900 transition"
+              >
+                <Plus className="h-4.5 w-4.5" /> Catalog SKU Item
+              </button>
+            </form>
+          </div>
+
+          {/* Sku catalogue table lists */}
+          <div className="rounded-2xl border border-slate-205 bg-white p-5 shadow-sm max-h-[500px] overflow-y-auto">
+            <h2 className="font-display text-sm font-bold text-slate-905 mb-3.5 flex items-center justify-between">
+              Active SKU Catalogue list
+              <span className="text-xs text-slate-400 bg-slate-50 px-2 py-0.5 rounded border font-semibold">{skus.length} elements</span>
+            </h2>
+            <div className="overflow-x-auto text-sm font-medium">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-100">
+                    <th className="py-2 px-3 text-xs font-bold tracking-widest text-slate-400">SKU Code</th>
+                    <th className="py-2 px-3 text-xs font-bold tracking-widest text-slate-400">Label Description</th>
+                    <th className="py-2 px-3 text-xs font-bold tracking-widest text-slate-400">Safety Level Limit</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+                  {skus.map((item) => (
+                    <tr key={item.id} className="hover:bg-slate-50/50">
+                      <td className="py-3 px-3"><span className="font-mono text-xs font-bold text-indigo-750 bg-indigo-50 border border-indigo-150 rounded px-1.5 py-0.5">{item.id}</span></td>
+                      <td className="py-3 px-3 font-semibold text-slate-900">{item.name}</td>
+                      <td className="py-3 px-3 text-slate-600">{item.lowStockAlert} units alert</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

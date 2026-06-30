@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
-import { User, SKU, InventoryItem, EngineerStock, ProductivityLog, StockRequest, AttendanceRecord } from '../types';
+import React, { useState, useEffect } from 'react';
+import { User, SKU, InventoryItem, EngineerStock, ProductivityLog, StockRequest, AttendanceRecord, ReturnRequest } from '../types';
 import { getSku, getInvItem, fmtDate, fmtCur, genId, getMonthRange } from '../utils';
-import { Plus, Trash, Send, CheckCircle, AlertTriangle, AlertOctagon, TrendingUp, Calendar, Award, PhoneCall, ListRestart } from 'lucide-react';
+import { Plus, Trash, Send, CheckCircle, AlertTriangle, AlertOctagon, TrendingUp, Calendar, Award, PhoneCall, ListRestart, RotateCcw } from 'lucide-react';
 
 interface EngineerPagesProps {
   currentUser: User;
@@ -16,8 +16,10 @@ interface EngineerPagesProps {
   productivityLogs: ProductivityLog[];
   attendance: AttendanceRecord;
   stockRequests: StockRequest[];
+  returnRequests?: ReturnRequest[];
   activeTab: string;
   onAddStockRequest: (req: StockRequest) => void;
+  onAddReturnRequest: (req: ReturnRequest) => void;
   onUpdateStockRequests?: (reqs: StockRequest[]) => void;
   onAddProductivityLog: (log: ProductivityLog) => void;
   onUpdateLogs?: (l: ProductivityLog[]) => void;
@@ -32,8 +34,10 @@ export function EngineerPages({
   productivityLogs,
   attendance,
   stockRequests,
+  returnRequests = [],
   activeTab,
   onAddStockRequest,
+  onAddReturnRequest,
   onUpdateStockRequests,
   onAddProductivityLog,
   onUpdateLogs,
@@ -81,6 +85,7 @@ export function EngineerPages({
   const [resubmitRcp, setResubmitRcp] = useState('');
   const [resubmitRcpQty, setResubmitRcpQty] = useState('');
   const [resubmitLines, setResubmitLines] = useState<AccessoryLine[]>([]);
+  const [logsTab, setLogsTab] = useState<'requests' | 'returns'>('requests');
 
   const handleStartResubmit = (log: ProductivityLog) => {
     setResubmitLog(log);
@@ -720,6 +725,7 @@ export function EngineerPages({
   if (activeTab === 'eng-stock') {
     const stockList = engineerStock[currentUser.email] || [];
     const engRequests = stockRequests.filter((r) => r.engEmail === currentUser.email);
+    const myReturns = (returnRequests || []).filter((r) => r.engEmail === currentUser.email);
 
     return (
       <div className="space-y-6">
@@ -768,92 +774,178 @@ export function EngineerPages({
               </table>
             </div>
           </div>
-
-          {/* Sku Request Form */}
-          <AddStockRequestForm currentUser={currentUser} skus={skus} onAddStockRequest={onAddStockRequest} onAddToast={onAddToast} />
+          {/* Sku Actions (Request / Return) Tabbed Form */}
+          <VanStockActionsForm
+            currentUser={currentUser}
+            skus={skus}
+            engineerStock={engineerStock}
+            onAddStockRequest={onAddStockRequest}
+            onAddReturnRequest={onAddReturnRequest}
+            onAddToast={onAddToast}
+          />
         </div>
 
-        {/* Requests Logs */}
-        <div className="rounded-2xl border border-slate-200/50 bg-white p-6 shadow-sm">
-          <h2 className="font-display text-base font-bold text-slate-950 mb-3">Stock Request Logs Status</h2>
+        {/* Requests / Returns Logs */}
+        <div className="rounded-2xl border border-slate-200/50 bg-white p-6 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <h2 className="font-display text-base font-bold text-slate-950">Van Stock Log History</h2>
+            
+            {/* Logs Tab Selector */}
+            <div className="flex border-b border-slate-100 self-start sm:self-auto">
+              <button
+                onClick={() => setLogsTab('requests')}
+                className={`px-3 py-1.5 text-xs font-bold border-b-2 transition ${
+                  logsTab === 'requests'
+                    ? 'border-indigo-650 text-indigo-650'
+                    : 'border-transparent text-slate-400 hover:text-slate-650'
+                }`}
+              >
+                Allocation Requests ({engRequests.length})
+              </button>
+              <button
+                onClick={() => setLogsTab('returns')}
+                className={`px-3 py-1.5 text-xs font-bold border-b-2 transition ${
+                  logsTab === 'returns'
+                    ? 'border-indigo-650 text-indigo-650'
+                    : 'border-transparent text-slate-400 hover:text-slate-650'
+                }`}
+              >
+                Returns ({myReturns.length})
+              </button>
+            </div>
+          </div>
+
           <div className="overflow-x-auto text-sm font-medium">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-100">
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Request ID</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">SKU Code</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Item Description</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Qty Needed</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Requested Date</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Approval Status</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {engRequests.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="text-center py-8 text-slate-400">
-                      No stock requests recorded for your profile.
-                    </td>
+            {logsTab === 'requests' ? (
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-100">
+                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Request ID</th>
+                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">SKU Code</th>
+                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Item Description</th>
+                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Qty Needed</th>
+                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Requested Date</th>
+                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Approval Status</th>
+                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 text-right">Actions</th>
                   </tr>
-                ) : (
-                  engRequests
-                    .sort((a, b) => b.date.localeCompare(a.date))
-                    .map((r) => (
-                      <tr key={r.id}>
-                        <td className="py-3 px-3 text-xs text-slate-400">{r.id}</td>
-                        <td className="py-3 px-3">
-                          <span className="font-mono text-xs font-bold text-slate-700 bg-slate-100 rounded-lg px-2 py-0.5">
-                            {r.skuId}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 text-slate-900">{getSku(skus, r.skuId).name}</td>
-                        <td className="py-3 px-3 font-semibold text-slate-800">{r.qty} units</td>
-                        <td className="py-3 px-3 text-slate-500">{fmtDate(r.date)}</td>
-                        <td className="py-3 px-3">
-                          <span
-                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold border ${
-                              r.status === 'Approved'
-                                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                                : r.status === 'Rejected'
-                                ? 'bg-rose-50 border-rose-200 text-rose-800'
-                                : r.status === 'Revoke-Pending'
-                                ? 'bg-violet-50 border-violet-100 text-violet-800'
-                                : r.status === 'Revoked'
-                                ? 'bg-slate-100 border-slate-200 text-slate-650'
-                                : 'bg-amber-50 border-amber-200 text-amber-800'
-                            }`}
-                          >
-                            {r.status}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 text-right">
-                          {r.status === 'Rejected' && onUpdateStockRequests ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const updated = stockRequests.map((req) => {
-                                  if (req.id === r.id) {
-                                    return { ...req, status: 'Pending' as const };
-                                  }
-                                  return req;
-                                });
-                                onUpdateStockRequests(updated);
-                                onAddToast(`Stock Request ${r.id} raised again successfully!`, 'success');
-                              }}
-                              className="inline-flex items-center gap-0.5 rounded-lg border border-indigo-200 bg-indigo-50/70 px-2 py-0.5 text-[10px] font-bold text-indigo-700 hover:bg-indigo-100 transition shadow-xs"
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {engRequests.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="text-center py-8 text-slate-400">
+                        No stock requests recorded for your profile.
+                      </td>
+                    </tr>
+                  ) : (
+                    engRequests
+                      .sort((a, b) => b.date.localeCompare(a.date))
+                      .map((r) => (
+                        <tr key={r.id}>
+                          <td className="py-3 px-3 text-xs text-slate-400">{r.id}</td>
+                          <td className="py-3 px-3">
+                            <span className="font-mono text-xs font-bold text-slate-700 bg-slate-100 rounded-lg px-2 py-0.5">
+                              {r.skuId}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-slate-900">{getSku(skus, r.skuId).name}</td>
+                          <td className="py-3 px-3 font-semibold text-slate-800">{r.qty} units</td>
+                          <td className="py-3 px-3 text-slate-500">{fmtDate(r.date)}</td>
+                          <td className="py-3 px-3">
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold border ${
+                                r.status === 'Approved'
+                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                                  : r.status === 'Rejected'
+                                  ? 'bg-rose-50 border-rose-200 text-rose-800'
+                                  : r.status === 'Revoke-Pending'
+                                  ? 'bg-violet-50 border-violet-100 text-violet-800'
+                                  : r.status === 'Revoked'
+                                  ? 'bg-slate-100 border-slate-200 text-slate-650'
+                                  : 'bg-amber-50 border-amber-200 text-amber-800'
+                              }`}
                             >
-                              <ListRestart className="h-3 w-3" /> Raise Again
-                            </button>
-                          ) : (
-                            <span className="text-slate-300 font-medium">—</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                )}
-              </tbody>
-            </table>
+                              {r.status}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            {r.status === 'Rejected' && onUpdateStockRequests ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updated = stockRequests.map((req) => {
+                                    if (req.id === r.id) {
+                                      return { ...req, status: 'Pending' as const };
+                                    }
+                                    return req;
+                                  });
+                                  onUpdateStockRequests(updated);
+                                  onAddToast(`Stock Request ${r.id} raised again successfully!`, 'success');
+                                }}
+                                className="inline-flex items-center gap-0.5 rounded-lg border border-indigo-200 bg-indigo-50/70 px-2 py-0.5 text-[10px] font-bold text-indigo-700 hover:bg-indigo-100 transition shadow-xs"
+                              >
+                                <ListRestart className="h-3 w-3" /> Raise Again
+                              </button>
+                            ) : (
+                              <span className="text-slate-300 font-medium">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                  )}
+                </tbody>
+              </table>
+            ) : (
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-100">
+                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Return ID</th>
+                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">SKU Code</th>
+                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Item Description</th>
+                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Qty returning</th>
+                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Requested Date</th>
+                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Approval Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {myReturns.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="text-center py-8 text-slate-400">
+                        No return requests recorded for your profile.
+                      </td>
+                    </tr>
+                  ) : (
+                    myReturns
+                      .sort((a, b) => b.date.localeCompare(a.date))
+                      .map((r) => (
+                        <tr key={r.id}>
+                          <td className="py-3 px-3 text-xs text-slate-400">{r.id}</td>
+                          <td className="py-3 px-3">
+                            <span className="font-mono text-xs font-bold text-slate-700 bg-slate-100 rounded-lg px-2 py-0.5">
+                              {r.skuId}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-slate-900">{getSku(skus, r.skuId).name}</td>
+                          <td className="py-3 px-3 font-semibold text-slate-805">-{r.qty} units</td>
+                          <td className="py-3 px-3 text-slate-500">{fmtDate(r.date)}</td>
+                          <td className="py-3 px-3">
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold border ${
+                                r.status === 'Approved'
+                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                                  : r.status === 'Rejected'
+                                  ? 'bg-rose-50 border-rose-200 text-rose-800'
+                                  : 'bg-amber-50 border-amber-200 text-amber-800'
+                              }`}
+                            >
+                              {r.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                  )}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       </div>
@@ -863,24 +955,45 @@ export function EngineerPages({
   return null;
 }
 
-// Subcomponent: Sku Request Form
-function AddStockRequestForm({
+// Subcomponent: Van Stock Actions Form (Request / Return)
+function VanStockActionsForm({
   currentUser,
   skus,
+  engineerStock,
   onAddStockRequest,
+  onAddReturnRequest,
   onAddToast,
 }: {
   currentUser: User;
   skus: SKU[];
+  engineerStock: EngineerStock;
   onAddStockRequest: (req: StockRequest) => void;
+  onAddReturnRequest: (req: ReturnRequest) => void;
   onAddToast: (msg: string, type?: 'success' | 'error') => void;
 }) {
-  const [skuId, setSkuId] = useState(skus[0]?.id || '');
-  const [qty, setQty] = useState('');
+  const [activeForm, setActiveForm] = useState<'request' | 'return'>('request');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const stockList = engineerStock[currentUser.email] || [];
+  const availableSkus = stockList.filter(s => s.qty > 0);
+
+  // request form states
+  const [requestSkuId, setRequestSkuId] = useState(skus[0]?.id || '');
+  const [requestQty, setRequestQty] = useState('');
+
+  // return form states
+  const [returnSkuId, setReturnSkuId] = useState(availableSkus[0]?.skuId || '');
+  const [returnQty, setReturnQty] = useState('');
+
+  // automatically update return Sku selection when list changes
+  useEffect(() => {
+    if (availableSkus.length > 0 && !availableSkus.some(s => s.skuId === returnSkuId)) {
+      setReturnSkuId(availableSkus[0].skuId);
+    }
+  }, [availableSkus, returnSkuId]);
+
+  const handleRequestSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const parsedQty = parseInt(qty, 10);
+    const parsedQty = parseInt(requestQty, 10);
     if (isNaN(parsedQty) || parsedQty <= 0) {
       onAddToast('Please enter a valid request quantity', 'error');
       return;
@@ -889,60 +1002,173 @@ function AddStockRequestForm({
     const newReq: StockRequest = {
       id: genId('SR'),
       engEmail: currentUser.email,
-      skuId,
+      skuId: requestSkuId,
       qty: parsedQty,
       date: new Date().toISOString().split('T')[0],
       status: 'Pending',
     };
 
     onAddStockRequest(newReq);
-    setQty('');
+    setRequestQty('');
     onAddToast('Stock request sent to store controller successfully!');
   };
 
+  const handleReturnSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!returnSkuId) {
+      onAddToast('No available stock to return', 'error');
+      return;
+    }
+
+    const parsedQty = parseInt(returnQty, 10);
+    const availableItem = availableSkus.find(s => s.skuId === returnSkuId);
+    const maxQty = availableItem ? availableItem.qty : 0;
+
+    if (isNaN(parsedQty) || parsedQty <= 0) {
+      onAddToast('Please enter a valid return quantity', 'error');
+      return;
+    }
+    if (parsedQty > maxQty) {
+      onAddToast(`Cannot return more than available van stock (${maxQty} units)`, 'error');
+      return;
+    }
+
+    const newReq: ReturnRequest = {
+      id: genId('RR'),
+      engEmail: currentUser.email,
+      skuId: returnSkuId,
+      qty: parsedQty,
+      date: new Date().toISOString().split('T')[0],
+      status: 'Pending',
+    };
+
+    onAddReturnRequest(newReq);
+    setReturnQty('');
+    onAddToast('Stock return request submitted for Store Manager approval!');
+  };
+
   return (
-    <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
-      <h2 className="font-display text-sm font-bold text-slate-950 mb-4">Request New Stock Allocations</h2>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-xs font-bold tracking-wider text-slate-500 mb-1.5">
-            Select SKU
-          </label>
-          <select
-            value={skuId}
-            onChange={(e) => setSkuId(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-semibold outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-150"
-          >
-            {skus.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.id} – {s.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-xs font-bold tracking-wider text-slate-500 mb-1.5">
-            Quantity
-          </label>
-          <input
-            type="number"
-            min="1"
-            required
-            value={qty}
-            onChange={(e) => setQty(e.target.value)}
-            placeholder="e.g. 10"
-            className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-semibold outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-150"
-          />
-        </div>
-
+    <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm space-y-4">
+      {/* Tabs */}
+      <div className="flex border-b border-slate-100">
         <button
-          type="submit"
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-600/10 outline-none transition duration-150 hover:bg-slate-900"
+          onClick={() => setActiveForm('request')}
+          className={`flex-1 pb-3 text-xs font-bold border-b-2 tracking-wide uppercase transition ${
+            activeForm === 'request'
+              ? 'border-indigo-600 text-indigo-600'
+              : 'border-transparent text-slate-400 hover:text-slate-655'
+          }`}
         >
-          <Send className="h-4 w-4" /> Submit Request
+          Request Stock
         </button>
-      </form>
+        <button
+          onClick={() => setActiveForm('return')}
+          className={`flex-1 pb-3 text-xs font-bold border-b-2 tracking-wide uppercase transition ${
+            activeForm === 'return'
+              ? 'border-indigo-600 text-indigo-600'
+              : 'border-transparent text-slate-400 hover:text-slate-655'
+          }`}
+        >
+          Return Stock
+        </button>
+      </div>
+
+      {activeForm === 'request' ? (
+        <form onSubmit={handleRequestSubmit} className="space-y-4 pt-2">
+          <div>
+            <label className="block text-xs font-bold tracking-wider text-slate-500 mb-1.5">
+              Select SKU
+            </label>
+            <select
+              value={requestSkuId}
+              onChange={(e) => setRequestSkuId(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-semibold outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-150"
+            >
+              {skus.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.id} – {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold tracking-wider text-slate-500 mb-1.5">
+              Quantity
+            </label>
+            <input
+              type="number"
+              min="1"
+              required
+              value={requestQty}
+              onChange={(e) => setRequestQty(e.target.value)}
+              placeholder="e.g. 10"
+              className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-semibold outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-150"
+            />
+          </div>
+
+          <button
+            type="submit"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-600/10 outline-none transition duration-150 hover:bg-slate-900"
+          >
+            <Send className="h-4 w-4" /> Submit Request
+          </button>
+        </form>
+      ) : (
+        <form onSubmit={handleReturnSubmit} className="space-y-4 pt-2">
+          <div>
+            <label className="block text-xs font-bold tracking-wider text-slate-500 mb-1.5">
+              Select SKU to Return
+            </label>
+            {availableSkus.length === 0 ? (
+              <div className="rounded-xl border border-rose-100 bg-rose-50/50 p-4 text-xs font-semibold text-rose-800 text-center">
+                No items available in your van stock to return.
+              </div>
+            ) : (
+              <select
+                value={returnSkuId}
+                onChange={(e) => setReturnSkuId(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-semibold outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-150"
+              >
+                {availableSkus.map((s) => {
+                  const skuItem = getSku(skus, s.skuId);
+                  return (
+                    <option key={s.skuId} value={s.skuId}>
+                      {s.skuId} – {skuItem.name} (Van stock: {s.qty} units)
+                    </option>
+                  );
+                })}
+              </select>
+            )}
+          </div>
+
+          {availableSkus.length > 0 && (
+            <>
+              <div>
+                <label className="block text-xs font-bold tracking-wider text-slate-500 mb-1.5">
+                  Return Quantity
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  required
+                  value={returnQty}
+                  onChange={(e) => setReturnQty(e.target.value)}
+                  placeholder={`Max ${availableSkus.find(s => s.skuId === returnSkuId)?.qty || 0} units`}
+                  className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-semibold outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-150"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-650 py-3 text-sm font-bold text-white shadow-lg shadow-violet-650/10 outline-none transition duration-150 hover:bg-slate-900"
+              >
+                <RotateCcw className="h-4 w-4" /> Submit Return Request
+              </button>
+            </>
+          )}
+        </form>
+      )}
     </div>
   );
 }

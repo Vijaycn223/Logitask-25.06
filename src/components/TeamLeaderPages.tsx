@@ -82,6 +82,7 @@ export function TeamLeaderPages({
   const [tlQueueTab, setTlQueueTab] = useState<'pending' | 'done'>('pending');
   // Local notes state for textareas
   const [tlNotes, setTlNotes] = useState<Record<string, string>>({});
+  const [processingProductivityIds, setProcessingProductivityIds] = useState<string[]>([]);
 
   // Search and filter states for TL Validation Queue
   const [tlSearchQuery, setTlSearchQuery] = useState('');
@@ -124,14 +125,20 @@ export function TeamLeaderPages({
 
   const handleTLAction = (logId: string, action: 'Validated by TL' | 'Rejected') => {
     const note = tlNotes[logId] || '';
-    onUpdateLogStatus(logId, action, note);
-    onAddToast(action === 'Validated by TL' ? 'Entry successfully validated and forwarded to Store Manager!' : 'Log rejected.', 'success');
-    // Clear local note
-    setTlNotes(prev => {
-      const copy = { ...prev };
-      delete copy[logId];
-      return copy;
-    });
+    if (processingProductivityIds.includes(logId)) return;
+    setProcessingProductivityIds((prev) => [...prev, logId]);
+
+    setTimeout(() => {
+      onUpdateLogStatus(logId, action, note);
+      onAddToast(action === 'Validated by TL' ? 'Entry successfully validated and forwarded to Store Manager!' : 'Log rejected.', 'success');
+      // Clear local note
+      setTlNotes(prev => {
+        const copy = { ...prev };
+        delete copy[logId];
+        return copy;
+      });
+      setProcessingProductivityIds((prev) => prev.filter((id) => id !== logId));
+    }, 1000);
   };
 
   if (activeTab === 'tl-dashboard') {
@@ -369,9 +376,16 @@ export function TeamLeaderPages({
                           {l.rcpQty ? ` (Qty: ${l.rcpQty})` : ''}
                         </div>
                       </div>
-                      <span className="inline-flex self-start items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs font-bold text-amber-700">
-                        Awaiting Validation
-                      </span>
+                      <div className="flex flex-col items-end gap-1.5 self-start">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-550 border border-amber-600 px-2.5 py-0.5 text-xs font-bold text-white">
+                          Awaiting Validation
+                        </span>
+                        {processingProductivityIds.includes(l.id) && (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-550 border border-amber-600 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-white animate-pulse">
+                            Processing...
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     {/* Accessories listed row */}
@@ -401,16 +415,20 @@ export function TeamLeaderPages({
 
                     <div className="flex justify-end gap-2.5">
                       <button
+                        type="button"
+                        disabled={processingProductivityIds.includes(l.id)}
                         onClick={() => handleTLAction(l.id, 'Rejected')}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100 px-4.5 py-2.5 text-xs font-bold tracking-wide transition"
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100 px-4.5 py-2.5 text-xs font-bold tracking-wide transition disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <ThumbsDown className="h-4 w-4" /> Reject
                       </button>
                       <button
+                        type="button"
+                        disabled={processingProductivityIds.includes(l.id)}
                         onClick={() => handleTLAction(l.id, 'Validated by TL')}
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 text-white hover:bg-slate-900 px-4.5 py-2.5 text-xs font-bold tracking-wide transition shadow-sm shadow-indigo-600/10"
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 text-white hover:bg-slate-900 px-4.5 py-2.5 text-xs font-bold tracking-wide transition shadow-sm shadow-indigo-600/10 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        <ThumbsUp className="h-4 w-4" /> Validate
+                        <ThumbsUp className="h-4 w-4" /> {processingProductivityIds.includes(l.id) ? 'Processing...' : 'Validate'}
                       </button>
                     </div>
                   </div>

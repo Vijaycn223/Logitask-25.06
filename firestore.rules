@@ -136,73 +136,73 @@ service cloud.firestore {
     match /organisations/{orgId} {
       allow read: if true;
       allow create, update: if isValidId(orgId) && isValidOrganisation(incoming());
-      allow delete: if isSignedIn();
+      allow delete: if true;
     }
 
     match /users/{email} {
       allow read: if true;
       allow create, update: if isValidId(email) && isValidUser(incoming());
-      allow delete: if isSignedIn();
+      allow delete: if true;
     }
 
     match /skus/{skuId} {
       allow read: if true;
       allow create, update: if isValidId(skuId) && isValidSku(incoming());
-      allow delete: if isSignedIn();
+      allow delete: if true;
     }
 
     match /inventory/{skuId} {
       allow read: if true;
       allow create, update: if isValidId(skuId) && isValidInventoryItem(incoming());
-      allow delete: if isSignedIn();
+      allow delete: if true;
     }
 
     match /engineerStock/{email} {
       allow read: if true;
       allow create, update: if isValidId(email) && isValidEngineerStock(incoming());
-      allow delete: if isSignedIn();
+      allow delete: if true;
     }
 
     match /productivityLogs/{logId} {
       allow read: if true;
       allow create, update: if isValidId(logId) && isValidProductivityLog(incoming());
-      allow delete: if isSignedIn();
+      allow delete: if true;
     }
 
     match /attendance/{email} {
       allow read: if true;
       allow create, update: if isValidId(email) && isValidAttendanceRecord(incoming());
-      allow delete: if isSignedIn();
+      allow delete: if true;
     }
 
     match /stockRequests/{reqId} {
       allow read: if true;
       allow create, update: if isValidId(reqId) && isValidStockRequest(incoming());
-      allow delete: if isSignedIn();
+      allow delete: if true;
     }
 
     match /purchaseInward/{inwardId} {
       allow read: if true;
       allow create, update: if isValidId(inwardId) && isValidPurchaseInward(incoming());
-      allow delete: if isSignedIn();
+      allow delete: if true;
     }
 
     match /revokeRequests/{revokeId} {
       allow read: if true;
       allow create, update: if isValidId(revokeId) && isValidRevokeRequest(incoming());
-      allow delete: if isSignedIn();
+      allow delete: if true;
     }
 
     match /lpRequests/{reqId} {
       allow read: if true;
       allow create, update: if isValidId(reqId) && isValidLPRequest(incoming());
-      allow delete: if isSignedIn();
+      allow delete: if true;
     }
 
     match /attendanceRequests/{reqId} {
       allow read: if true;
       allow create, update: if isValidId(reqId) && isValidAttendanceRequest(incoming());
-      allow delete: if isSignedIn();
+      allow delete: if true;
     }
   }
 }

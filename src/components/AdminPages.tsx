@@ -168,6 +168,12 @@ function AdminPagesInner({
   const [processedRvSkuFilter, setProcessedRvSkuFilter] = useState('');
   const [processedRvDateFilter, setProcessedRvDateFilter] = useState('');
 
+  // Consolidated inventory approvals and stock search states
+  const [invApproveSubTab, setInvApproveSubTab] = useState<'purchases' | 'revokes'>('purchases');
+  const [processingPurchaseIds, setProcessingPurchaseIds] = useState<string[]>([]);
+  const [processingRevokeIds, setProcessingRevokeIds] = useState<string[]>([]);
+  const [invSearchQuery, setInvSearchQuery] = useState('');
+
   // Attendance filter states
   const [pendingAttRoleFilter, setPendingAttRoleFilter] = useState('');
   const [pendingAttEngFilter, setPendingAttEngFilter] = useState('');
@@ -230,11 +236,13 @@ function AdminPagesInner({
     });
 
     // Mark attendance Present
-    const updatedAttendance = { ...attendance };
-    if (!updatedAttendance[log.engEmail]) {
-      updatedAttendance[log.engEmail] = {};
-    }
-    updatedAttendance[log.engEmail][log.date] = 'Present';
+    const updatedAttendance: AttendanceRecord = {
+      ...attendance,
+      [log.engEmail]: {
+        ...(attendance[log.engEmail] || {}),
+        [log.date]: 'Present'
+      }
+    };
 
     // Deduct from engineer's van stock
     const updatedEngStock = { ...engineerStock };
@@ -302,37 +310,51 @@ function AdminPagesInner({
   const handleApprovePurchase = (piId: string) => {
     const pi = purchaseInward.find((p) => p.id === piId);
     if (!pi) return;
+    if (processingPurchaseIds.includes(piId)) return;
+    setProcessingPurchaseIds((prev) => [...prev, piId]);
 
-    // Approve purchase status
-    const updatedPurchases = purchaseInward.map((p) => {
-      if (p.id === piId) return { ...p, status: 'Approved' as const };
-      return p;
-    });
+    setTimeout(() => {
+      // Approve purchase status
+      const updatedPurchases = purchaseInward.map((p) => {
+        if (p.id === piId) return { ...p, status: 'Approved' as const };
+        return p;
+      });
 
-    // Credit key main stock levels
-    const updatedInventory = [...inventory];
-    const itemLevel = updatedInventory.find((i) => i.skuId === pi.skuId);
-    if (itemLevel) {
-      itemLevel.qty += pi.qty;
-      if (pi.unitPrice > 0) {
-        itemLevel.unitPrice = pi.unitPrice; // update weighted base cost
+      // Credit key main stock levels
+      const updatedInventory = inventory.map((i) => {
+        if (i.skuId === pi.skuId) {
+          return {
+            ...i,
+            qty: i.qty + pi.qty,
+            unitPrice: pi.unitPrice > 0 ? pi.unitPrice : i.unitPrice
+          };
+        }
+        return i;
+      });
+      if (!inventory.some((i) => i.skuId === pi.skuId)) {
+        updatedInventory.push({ skuId: pi.skuId, qty: pi.qty, unitPrice: pi.unitPrice });
       }
-    } else {
-      updatedInventory.push({ skuId: pi.skuId, qty: pi.qty, unitPrice: pi.unitPrice });
-    }
 
-    onUpdatePurchaseInward(updatedPurchases);
-    onUpdateInventory(updatedInventory);
-    onAddToast(`Purchase approved! Stock credited: +${pi.qty} of ${getSku(skus, pi.skuId).name} added onto warehouse shelves.`);
+      onUpdatePurchaseInward(updatedPurchases);
+      onUpdateInventory(updatedInventory);
+      onAddToast(`Purchase approved! Stock credited: +${pi.qty} of ${getSku(skus, pi.skuId).name} added onto warehouse shelves.`);
+      setProcessingPurchaseIds((prev) => prev.filter((id) => id !== piId));
+    }, 1000);
   };
 
   const handleRejectPurchase = (piId: string) => {
-    const updatedPurchases = purchaseInward.map((p) => {
-      if (p.id === piId) return { ...p, status: 'Rejected' as const };
-      return p;
-    });
-    onUpdatePurchaseInward(updatedPurchases);
-    onAddToast('Purchase entry rejected successfully.', 'success');
+    if (processingPurchaseIds.includes(piId)) return;
+    setProcessingPurchaseIds((prev) => [...prev, piId]);
+
+    setTimeout(() => {
+      const updatedPurchases = purchaseInward.map((p) => {
+        if (p.id === piId) return { ...p, status: 'Rejected' as const };
+        return p;
+      });
+      onUpdatePurchaseInward(updatedPurchases);
+      onAddToast('Purchase entry rejected successfully.', 'success');
+      setProcessingPurchaseIds((prev) => prev.filter((id) => id !== piId));
+    }, 1000);
   };
 
 
@@ -345,63 +367,75 @@ function AdminPagesInner({
   const handleApproveRevoke = (rvId: string) => {
     const rv = revokeRequests.find((r) => r.id === rvId);
     if (!rv) return;
+    if (processingRevokeIds.includes(rvId)) return;
+    setProcessingRevokeIds((prev) => [...prev, rvId]);
 
-    // Approve request
-    const updatedRevRequests = revokeRequests.map((r) => {
-      if (r.id === rvId) return { ...r, status: 'Revoked' as const };
-      return r;
-    });
+    setTimeout(() => {
+      // Approve request
+      const updatedRevRequests = revokeRequests.map((r) => {
+        if (r.id === rvId) return { ...r, status: 'Revoked' as const };
+        return r;
+      });
 
-    // Deduct logs allocations state
-    const updatedStockRequests = stockRequests.map((s) => {
-      if (s.id === rv.reqId) return { ...s, status: 'Revoked' as const };
-      return s;
-    });
+      // Deduct logs allocations state
+      const updatedStockRequests = stockRequests.map((s) => {
+        if (s.id === rv.reqId) return { ...s, status: 'Revoked' as const };
+        return s;
+      });
 
-    // Deduct allocations from Engineer Van
-    const updatedEngStock = { ...engineerStock };
-    const list = updatedEngStock[rv.engEmail] || [];
-    updatedEngStock[rv.engEmail] = list.map((item) => {
-      if (item.skuId === rv.skuId) {
-        return { ...item, qty: Math.max(0, item.qty - rv.qty) };
+      // Deduct allocations from Engineer Van
+      const updatedEngStock = { ...engineerStock };
+      const list = updatedEngStock[rv.engEmail] || [];
+      updatedEngStock[rv.engEmail] = list.map((item) => {
+        if (item.skuId === rv.skuId) {
+          return { ...item, qty: Math.max(0, item.qty - rv.qty) };
+        }
+        return item;
+      });
+
+      // Return to main warehouse inventory
+      const updatedInventory = inventory.map((i) => {
+        if (i.skuId === rv.skuId) {
+          return { ...i, qty: i.qty + rv.qty };
+        }
+        return i;
+      });
+      if (!inventory.some((i) => i.skuId === rv.skuId)) {
+        updatedInventory.push({ skuId: rv.skuId, qty: rv.qty, unitPrice: 0 });
       }
-      return item;
-    });
 
-    // Return to main warehouse inventory
-    const updatedInventory = [...inventory];
-    const mainItem = updatedInventory.find((i) => i.skuId === rv.skuId);
-    if (mainItem) {
-      mainItem.qty += rv.qty;
-    } else {
-      updatedInventory.push({ skuId: rv.skuId, qty: rv.qty, unitPrice: 0 });
-    }
-
-    onUpdateRevokeRequests(updatedRevRequests);
-    onUpdateStockRequests(updatedStockRequests);
-    onUpdateEngineerStock(updatedEngStock);
-    onUpdateInventory(updatedInventory);
-    onAddToast(`Revoke Approved! Recalled ${rv.qty} units of ${getSku(skus, rv.skuId).name} from ${getUser(users, rv.engEmail).name}'s van back onto warehouse shelves.`);
+      onUpdateRevokeRequests(updatedRevRequests);
+      onUpdateStockRequests(updatedStockRequests);
+      onUpdateEngineerStock(updatedEngStock);
+      onUpdateInventory(updatedInventory);
+      onAddToast(`Revoke Approved! Recalled ${rv.qty} units of ${getSku(skus, rv.skuId).name} from ${getUser(users, rv.engEmail).name}'s van back onto warehouse shelves.`);
+      setProcessingRevokeIds((prev) => prev.filter((id) => id !== rvId));
+    }, 1000);
   };
 
   const handleRejectRevoke = (rvId: string) => {
     const rv = revokeRequests.find((r) => r.id === rvId);
     if (!rv) return;
+    if (processingRevokeIds.includes(rvId)) return;
+    setProcessingRevokeIds((prev) => [...prev, rvId]);
 
-    const updatedRevRequests = revokeRequests.map((r) => {
-      if (r.id === rvId) return { ...r, status: 'Rejected' as const };
-      return r;
-    });
+    setTimeout(() => {
+      const updatedRevRequests = revokeRequests.map((r) => {
+        if (r.id === rvId) return { ...r, status: 'Rejected' as const };
+        return r;
+      });
 
-    // Restore the source request status back to Approved
-    const updatedStockRequests = stockRequests.map((s) => {
-      if (s.id === rv.reqId) return { ...s, status: 'Approved' as const };
-      return s;
-    });
+      // Restore the source request status back to Approved
+      const updatedStockRequests = stockRequests.map((s) => {
+        if (s.id === rv.reqId) return { ...s, status: 'Approved' as const };
+        return s;
+      });
 
-    onUpdateRevokeRequests(updatedRevRequests);
-    onUpdateStockRequests(updatedStockRequests);
-    onAddToast('Revoke proposal rejected. Allocations remain inside engineer van.', 'success');
+      onUpdateRevokeRequests(updatedRevRequests);
+      onUpdateStockRequests(updatedStockRequests);
+      onAddToast('Revoke proposal rejected. Allocations remain inside engineer van.', 'success');
+      setProcessingRevokeIds((prev) => prev.filter((id) => id !== rvId));
+    }, 1000);
   };
 
 
@@ -581,6 +615,24 @@ function AdminPagesInner({
     link.click();
     document.body.removeChild(link);
     onAddToast('Active engineer van holdings spreadsheet downloaded!');
+  };
+
+  const downloadAvailableStockCSV = () => {
+    const header = ['SKU ID', 'Item Description', 'Available Qty', 'Unit Price', 'Total Value'];
+    const rows = inventory.map((item) => {
+      const sk = getSku(skus, item.skuId);
+      return [item.skuId, sk.name, item.qty, item.unitPrice, item.qty * item.unitPrice];
+    });
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + [header.join(','), ...rows.map((e) => e.map((val) => `"${val}"`).join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `current_stock_available_report.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    onAddToast('Current stock available report CSV downloaded!');
   };
 
 
@@ -1225,7 +1277,7 @@ function AdminPagesInner({
     );
   }
 
-  if (activeTab === 'admin-purchase-approve') {
+  if (activeTab === 'admin-inventory-approve') {
     const filteredPendingPurchases = pendingPurchases.filter((p) => {
       const matchSku = !pendingPiSkuFilter || p.skuId === pendingPiSkuFilter;
       const matchVendor = !pendingPiVendorFilter || p.vendor === pendingPiVendorFilter;
@@ -1240,355 +1292,475 @@ function AdminPagesInner({
       return matchSku && matchVendor && matchDate;
     });
 
+    const filteredPendingRevokes = pendingRevokes.filter((r) => {
+      const matchEng = !pendingRvEngFilter || r.engEmail === pendingRvEngFilter;
+      const matchSku = !pendingRvSkuFilter || r.skuId === pendingRvSkuFilter;
+      const matchDate = !pendingRvDateFilter || r.date.includes(pendingRvDateFilter);
+      return matchEng && matchSku && matchDate;
+    });
+
+    const filteredProcessedRevokes = processedRevokes.filter((r) => {
+      const matchEng = !processedRvEngFilter || r.engEmail === processedRvEngFilter;
+      const matchSku = !processedRvSkuFilter || r.skuId === processedRvSkuFilter;
+      const matchDate = !processedRvDateFilter || r.date.includes(processedRvDateFilter);
+      return matchEng && matchSku && matchDate;
+    });
+
     return (
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="font-display text-2xl font-extrabold text-slate-955">Purchase Inward Approvals</h1>
-            <p className="text-sm font-medium text-slate-400">Validate incoming inventory shipments proposed by Store Controller</p>
+            <h1 className="font-display text-2xl font-extrabold text-slate-955">Inventory Approvals</h1>
+            <p className="text-sm font-medium text-slate-400">Validate incoming stock purchases and recall requests from engineer vans</p>
           </div>
-          <span className="inline-flex items-center gap-1 rounded-full bg-violet-105 border border-violet-200 px-3 py-1 text-xs font-bold text-violet-800">
-            {pendingPurchases.length} tickets pending check
+          <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 border border-indigo-200 px-3 py-1 text-xs font-bold text-indigo-800">
+            {pendingPurchases.length + pendingRevokes.length} tickets pending action
           </span>
         </div>
 
-        <div className="flex border-b border-slate-200">
-          <button onClick={() => setPiActiveTab('pending')} className={`px-4 py-3 text-sm font-bold border-b-2 transition ${piActiveTab === 'pending' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
-            Pending Approvals ({pendingPurchases.length})
+        {/* Inner Sub-tabs */}
+        <div className="flex flex-wrap gap-1 border-b border-slate-200 bg-white rounded-lg p-1 border border-slate-100 shadow-sm max-w-fit">
+          <button
+            onClick={() => setInvApproveSubTab('purchases')}
+            className={`px-4 py-2 text-xs font-extrabold uppercase rounded-md tracking-wider transition-all duration-200 ${
+              invApproveSubTab === 'purchases'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            Purchase Shipments ({pendingPurchases.length})
           </button>
-          <button onClick={() => setPiActiveTab('processed')} className={`px-4 py-3 text-sm font-bold border-b-2 transition ${piActiveTab === 'processed' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
-            Audit History ({processedPurchases.length})
+          <button
+            onClick={() => setInvApproveSubTab('revokes')}
+            className={`px-4 py-2 text-xs font-extrabold uppercase rounded-md tracking-wider transition-all duration-200 ${
+              invApproveSubTab === 'revokes'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            Van Recalls ({pendingRevokes.length})
           </button>
         </div>
 
-        {piActiveTab === 'pending' ? (
-          <div className="space-y-4">
-            {/* Filters Bar */}
-            <div className="flex flex-wrap items-center gap-2 p-4 bg-white rounded-2xl border border-slate-200/50 shadow-sm text-xs">
-              <select
-                value={pendingPiSkuFilter}
-                onChange={(e) => setPendingPiSkuFilter(e.target.value)}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-600 outline-none"
-                id="admin-pending-pi-sku"
-              >
-                <option value="">All SKUs</option>
-                {skus.map((s) => (
-                  <option key={s.id} value={s.id}>{s.id} – {s.name}</option>
-                ))}
-              </select>
-              <select
-                value={pendingPiVendorFilter}
-                onChange={(e) => setPendingPiVendorFilter(e.target.value)}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-600 outline-none"
-                id="admin-pending-pi-vendor"
-              >
-                <option value="">All Suppliers</option>
-                {[...new Set(purchaseInward.map(v => v.vendor).filter(Boolean))].sort().map((v) => (
-                  <option key={v} value={v}>{v}</option>
-                ))}
-              </select>
-              <input
-                type="month"
-                value={pendingPiDateFilter}
-                onChange={(e) => setPendingPiDateFilter(e.target.value)}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-600 outline-none font-sans"
-                id="admin-pending-pi-date"
-              />
-              {(pendingPiSkuFilter || pendingPiVendorFilter || pendingPiDateFilter) && (
-                <button
-                  onClick={() => {
-                    setPendingPiSkuFilter('');
-                    setPendingPiVendorFilter('');
-                    setPendingPiDateFilter('');
-                  }}
-                  className="px-3 py-2 text-indigo-600 font-bold hover:underline"
-                >
-                  Clear
-                </button>
-              )}
+        {invApproveSubTab === 'purchases' ? (
+          <div className="space-y-6">
+            <div className="flex border-b border-slate-200 bg-white/50 p-1.5 rounded-xl border border-slate-150 shadow-xs max-w-fit text-xs">
+              <button onClick={() => setPiActiveTab('pending')} className={`px-4.5 py-2 font-bold rounded-lg transition ${piActiveTab === 'pending' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                Pending Approvals ({pendingPurchases.length})
+              </button>
+              <button onClick={() => setPiActiveTab('processed')} className={`px-4.5 py-2 font-bold rounded-lg transition ${piActiveTab === 'processed' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                Audit History ({processedPurchases.length})
+              </button>
             </div>
 
-            {pendingPurchases.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center text-slate-400">
-                <CheckCircle className="mx-auto h-12 w-12 text-emerald-100 mb-2" />
-                <h3 className="font-bold text-slate-900 text-lg">Shipments Checked!</h3>
-                <p className="text-sm mt-1 font-semibold">Every proposed supplier cargo delivery has been cleared.</p>
-              </div>
-            ) : filteredPendingPurchases.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center text-slate-400">
-                <CheckCircle className="mx-auto h-12 w-12 text-amber-100 mb-2" />
-                <h3 className="font-bold text-slate-900 text-lg">No matching shipments</h3>
-                <p className="text-sm mt-1 select-none">Adjust filter selections above to search for records.</p>
+            {piActiveTab === 'pending' ? (
+              <div className="space-y-4">
+                {/* Filters Bar */}
+                <div className="flex flex-wrap items-center gap-2 p-4 bg-white rounded-2xl border border-slate-200/50 shadow-sm text-xs">
+                  <select
+                    value={pendingPiSkuFilter}
+                    onChange={(e) => setPendingPiSkuFilter(e.target.value)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-600 outline-none"
+                    id="admin-pending-pi-sku"
+                  >
+                    <option value="">All SKUs</option>
+                    {skus.map((s) => (
+                      <option key={s.id} value={s.id}>{s.id} – {s.name}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={pendingPiVendorFilter}
+                    onChange={(e) => setPendingPiVendorFilter(e.target.value)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-600 outline-none"
+                    id="admin-pending-pi-vendor"
+                  >
+                    <option value="">All Suppliers</option>
+                    {[...new Set(purchaseInward.map((v) => v.vendor).filter(Boolean))].sort().map((v) => (
+                      <option key={v} value={v}>{v}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="month"
+                    value={pendingPiDateFilter}
+                    onChange={(e) => setPendingPiDateFilter(e.target.value)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-600 outline-none font-sans"
+                    id="admin-pending-pi-date"
+                  />
+                  {(pendingPiSkuFilter || pendingPiVendorFilter || pendingPiDateFilter) && (
+                    <button
+                      onClick={() => {
+                        setPendingPiSkuFilter('');
+                        setPendingPiVendorFilter('');
+                        setPendingPiDateFilter('');
+                      }}
+                      className="px-3 py-2 text-indigo-600 font-bold hover:underline"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+
+                {pendingPurchases.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center text-slate-400">
+                    <CheckCircle className="mx-auto h-12 w-12 text-emerald-100 mb-2" />
+                    <h3 className="font-bold text-slate-900 text-lg">Shipments Checked!</h3>
+                    <p className="text-sm mt-1 font-semibold">Every proposed supplier cargo delivery has been cleared.</p>
+                  </div>
+                ) : filteredPendingPurchases.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center text-slate-400">
+                    <CheckCircle className="mx-auto h-12 w-12 text-amber-100 mb-2" />
+                    <h3 className="font-bold text-slate-900 text-lg">No matching shipments</h3>
+                    <p className="text-sm mt-1 select-none">Adjust filter selections above to search for records.</p>
+                  </div>
+                ) : (
+                  filteredPendingPurchases.map((p) => {
+                    const skuItem = getSku(skus, p.skuId);
+                    const invItem = getInvItem(inventory, p.skuId);
+                    const isProcessing = processingPurchaseIds.includes(p.id);
+
+                    return (
+                      <div key={p.id} className={`rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm space-y-4 animate-fade-in transition-all ${isProcessing ? 'opacity-60 pointer-events-none' : ''}`}>
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-slate-900">{skuItem.name}</span>
+                              <span className="font-mono text-xs font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">{p.id}</span>
+                            </div>
+                            <div className="text-xs font-bold text-indigo-650 mt-1 flex flex-wrap gap-2 items-center">
+                              <span>SKU: {p.skuId}</span>
+                              <span>•</span>
+                              <span>Supplier: {p.vendor || 'Unknown'}</span>
+                              <span>•</span>
+                              <span>Date Inward: {fmtDate(p.date)}</span>
+                            </div>
+                          </div>
+                          <div className="flex flex-col items-end gap-1.5 self-start shrink-0">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 border border-violet-100 px-2.5 py-0.5 text-[10px] font-extrabold uppercase text-violet-700">
+                              Proposed Cargo
+                            </span>
+                            {isProcessing && (
+                              <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-900 border border-slate-700 px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-white animate-pulse">
+                                Processing...
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100 text-xs font-semibold">
+                          <div>
+                            <div className="text-[10px] uppercase font-bold text-slate-400">Qty Shipping</div>
+                            <div className="text-sm font-extrabold text-slate-955">×{p.qty}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase font-bold text-slate-400">Unit Price</div>
+                            <div className="text-sm font-extrabold text-slate-805">{fmtCur(p.unitPrice)}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase font-bold text-slate-400">Warehouse stock</div>
+                            <div className="text-sm font-extrabold text-slate-500">{invItem.qty} available</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase font-bold text-slate-400">Cargo value</div>
+                            <div className="text-sm font-black text-indigo-600">{fmtCur(p.qty * p.unitPrice)}</div>
+                          </div>
+                        </div>
+
+                        <div className="flex justify-end gap-2.5">
+                          <button
+                            disabled={isProcessing}
+                            onClick={() => handleRejectPurchase(p.id)}
+                            className="rounded-xl border border-rose-255 bg-rose-50 text-rose-800 hover:bg-rose-100 px-4 py-2 text-xs font-bold transition disabled:opacity-50"
+                          >
+                            Reject Cargo
+                          </button>
+                          <button
+                            disabled={isProcessing}
+                            onClick={() => handleApprovePurchase(p.id)}
+                            className="rounded-xl bg-indigo-600 text-white hover:bg-slate-900 px-4.5 py-2.5 text-xs font-bold transition shadow-sm disabled:opacity-50"
+                          >
+                            {isProcessing ? 'Processing...' : 'Accept shipment & Credit stock'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             ) : (
-              filteredPendingPurchases.map((p) => {
-                const skuItem = getSku(skus, p.skuId);
-                const invItem = getInvItem(inventory, p.skuId);
-
-                return (
-                  <div key={p.id} className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm space-y-4 animate-fade-in">
-                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-slate-900">{skuItem.name}</span>
-                          <span className="font-mono text-xs font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">{p.id}</span>
-                        </div>
-                        <div className="text-xs font-bold text-indigo-600 mt-1">
-                          Inward date {fmtDate(p.date)} – Supplier Invoice {p.invoiceNo} – {p.vendor}
-                        </div>
-                      </div>
-                      <span className="inline-flex self-start items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs font-bold text-amber-700">
-                        Awaiting sanction
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 rounded-xl bg-slate-50 border border-slate-100 p-3.5 text-xs font-semibold">
-                      <div>
-                        <span className="text-slate-400 block mb-0.5">Product SKU</span>
-                        <span className="font-mono text-xs font-bold text-indigo-750">{p.skuId}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block mb-0.5">Quantity Received</span>
-                        <span className="text-xs text-slate-800 font-extrabold block">+{p.qty} units</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block mb-0.5">Invoice Unit Price</span>
-                        <span className="text-slate-800 font-extrabold">{fmtCur(p.unitPrice)}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block mb-0.5">Total Supplier Payment</span>
-                        <span className="text-rose-650 font-black">{fmtCur(p.qty * p.unitPrice)}</span>
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl border border-emerald-100 bg-emerald-50/20 p-3 flex items-start gap-2.5 text-xs font-medium text-emerald-950">
-                      <Truck className="h-5 w-5 text-emerald-500 shrink-0 mt-0.5 animate-bounce-slow" />
-                      <div>
-                        <strong>Warehouse Credit note:</strong> Approving adds <span className="font-bold underline">+{p.qty} units</span> to the main store. Current shelf stock: <span className="underline">{invItem.qty} → {invItem.qty + p.qty} units</span>.
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end gap-2">
-                      <button onClick={() => handleRejectPurchase(p.id)} className="rounded-xl border border-rose-250 bg-rose-50 px-4 py-2 text-xs font-bold text-rose-800 hover:bg-rose-100 transition">Reject shipment</button>
-                      <button onClick={() => handleApprovePurchase(p.id)} className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-slate-900 shadow-md shadow-indigo-600/10 transition">Approve & Credit main Stocks</button>
-                    </div>
+              <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <h2 className="font-display text-sm font-bold text-slate-955">Audit log cargo tracking</h2>
+                    <p className="text-xs text-slate-400">Search and audit closed cargo ticket logs</p>
                   </div>
-                );
-              })
+                  {/* Filters */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={processedPiSkuFilter}
+                      onChange={(e) => setProcessedPiSkuFilter(e.target.value)}
+                      className="rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold text-slate-600 outline-none"
+                    >
+                      <option value="">All SKUs</option>
+                      {skus.map((s) => (
+                        <option key={s.id} value={s.id}>{s.id} – {s.name}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={processedPiVendorFilter}
+                      onChange={(e) => setProcessedPiVendorFilter(e.target.value)}
+                      className="rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold text-slate-600 outline-none"
+                    >
+                      <option value="">All Vendors</option>
+                      {[...new Set(purchaseInward.map((v) => v.vendor).filter(Boolean))].sort().map((v) => (
+                        <option key={v} value={v}>{v}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto text-xs font-medium">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-100">
+                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">ID</th>
+                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Item</th>
+                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Vendor</th>
+                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Inward Date</th>
+                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Qty</th>
+                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">UnitPrice</th>
+                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Total Value</th>
+                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
+                      {filteredProcessedPurchases.map((p) => {
+                        const sk = getSku(skus, p.skuId);
+                        const isRejected = p.status === 'Rejected';
+                        return (
+                          <tr key={p.id} className={`hover:bg-slate-50/50 ${isRejected ? 'opacity-60' : ''}`}>
+                            <td className="py-3 px-3"><span className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded border border-slate-150">{p.id}</span></td>
+                            <td className="py-3 px-3"><strong>{sk.name}</strong></td>
+                            <td className="py-3 px-3">{p.vendor || 'N/A'}</td>
+                            <td className="py-3 px-3 text-slate-500">{fmtDate(p.date)}</td>
+                            <td className="py-3 px-3 font-bold font-semibold">×{p.qty}</td>
+                            <td className="py-3 px-3 text-slate-600">{fmtCur(p.unitPrice)}</td>
+                            <td className="py-3 px-3 text-indigo-650 font-bold">{fmtCur(p.qty * p.unitPrice)}</td>
+                            <td className="py-3 px-3">
+                              <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[9px] font-extrabold uppercase border ${p.status === 'Approved' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'}`}>
+                                {p.status}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             )}
           </div>
         ) : (
-          <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-100 pb-3">
-              <h2 className="font-display text-sm font-bold text-slate-950">Processed cargo audits list</h2>
-              
-              {/* Filter controls */}
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <select
-                  value={processedPiSkuFilter}
-                  onChange={(e) => setProcessedPiSkuFilter(e.target.value)}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-600 outline-none"
-                  id="admin-processed-pi-sku"
-                >
-                  <option value="">All SKUs</option>
-                  {skus.map((s) => (
-                    <option key={s.id} value={s.id}>{s.id} – {s.name}</option>
-                  ))}
-                </select>
-                <select
-                  value={processedPiVendorFilter}
-                  onChange={(e) => setProcessedPiVendorFilter(e.target.value)}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-600 outline-none"
-                  id="admin-processed-pi-vendor"
-                >
-                  <option value="">All Suppliers</option>
-                  {[...new Set(purchaseInward.map(v => v.vendor).filter(Boolean))].sort().map((v) => (
-                    <option key={v} value={v}>{v}</option>
-                  ))}
-                </select>
-                <input
-                  type="month"
-                  value={processedPiDateFilter}
-                  onChange={(e) => setProcessedPiDateFilter(e.target.value)}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-650 outline-none font-sans"
-                  id="admin-processed-pi-date"
-                />
-              </div>
+          <div className="space-y-6">
+            <div className="flex border-b border-slate-200 bg-white/50 p-1.5 rounded-xl border border-slate-150 shadow-xs max-w-fit text-xs">
+              <button onClick={() => setRvActiveTab('pending')} className={`px-4.5 py-2 font-bold rounded-lg transition ${rvActiveTab === 'pending' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                Recall Proposals ({pendingRevokes.length})
+              </button>
+              <button onClick={() => setRvActiveTab('processed')} className={`px-4.5 py-2 font-bold rounded-lg transition ${rvActiveTab === 'processed' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                Processed Ledgers ({processedRevokes.length})
+              </button>
             </div>
 
-            <div className="overflow-x-auto text-sm font-medium">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">ID</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">SKU</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Item Name</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Inbound Count</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Invoiced Vendor</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Cost Point</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Receipt Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredProcessedPurchases.map((p) => (
-                    <tr key={p.id}>
-                      <td className="py-2.5 px-3 text-xs text-slate-400">{p.id}</td>
-                      <td className="py-2.5 px-3"><span className="font-mono text-xs bg-slate-100 rounded px-1.5 py-0.5">{p.skuId}</span></td>
-                      <td className="py-2.5 px-3"><strong>{getSku(skus, p.skuId).name}</strong></td>
-                      <td className="py-2.5 px-3 text-indigo-700 font-bold">+{p.qty} units</td>
-                      <td className="py-2.5 px-3 text-slate-500 font-semibold">{p.vendor}</td>
-                      <td className="py-2.5 px-3 font-semibold text-slate-905">{fmtCur(p.qty * p.unitPrice)}</td>
-                      <td className="py-2.5 px-3">
-                        <span
-                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold border ${
-                            p.status === 'Approved'
-                              ? 'bg-emerald-50 border-emerald-150 text-emerald-800'
-                              : 'bg-rose-50 border-rose-150 text-rose-800'
-                          }`}
-                        >
-                          {p.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            {rvActiveTab === 'pending' ? (
+              <div className="space-y-4">
+                {/* Filters */}
+                <div className="flex flex-wrap items-center gap-2 p-4 bg-white rounded-2xl border border-slate-200/50 shadow-sm text-xs">
+                  <select
+                    value={pendingRvEngFilter}
+                    onChange={(e) => setPendingRvEngFilter(e.target.value)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-600 outline-none"
+                  >
+                    <option value="">All Engineers</option>
+                    {matrixEngineers.map((m) => (
+                      <option key={m.email} value={m.email}>{m.name}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={pendingRvSkuFilter}
+                    onChange={(e) => setPendingRvSkuFilter(e.target.value)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-600 outline-none"
+                  >
+                    <option value="">All SKUs</option>
+                    {skus.map((s) => (
+                      <option key={s.id} value={s.id}>{s.id} – {s.name}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="month"
+                    value={pendingRvDateFilter}
+                    onChange={(e) => setPendingRvDateFilter(e.target.value)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-600 outline-none font-sans"
+                  />
+                </div>
+
+                {pendingRevokes.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center text-slate-400">
+                    <CheckCircle className="mx-auto h-12 w-12 text-emerald-100 mb-2" />
+                    <h3 className="font-bold text-slate-900 text-lg">No Recall Audits!</h3>
+                    <p className="text-sm mt-1 font-semibold">Excellent! All proposed van recalls are resolved.</p>
+                  </div>
+                ) : filteredPendingRevokes.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center text-slate-400">
+                    <CheckCircle className="mx-auto h-12 w-12 text-amber-100 mb-2" />
+                    <h3 className="font-bold text-slate-900 text-lg">No matching recall entries</h3>
+                    <p className="text-sm mt-1">Adjust filters above to search for logs.</p>
+                  </div>
+                ) : (
+                  filteredPendingRevokes.map((rv) => {
+                    const sk = getSku(skus, rv.skuId);
+                    const eng = getUser(users, rv.engEmail);
+                    const list = engineerStock[rv.engEmail] || [];
+                    const activeVanItem = list.find((it) => it.skuId === rv.skuId);
+                    const vanQty = activeVanItem ? activeVanItem.qty : 0;
+                    const isProcessing = processingRevokeIds.includes(rv.id);
+
+                    return (
+                      <div key={rv.id} className={`rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm space-y-4 animate-fade-in transition-all ${isProcessing ? 'opacity-60 pointer-events-none' : ''}`}>
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-slate-900">Recall: {sk.name}</span>
+                              <span className="font-mono text-xs font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">{rv.id}</span>
+                            </div>
+                            <div className="text-xs font-bold text-indigo-650 mt-1 flex flex-wrap gap-2 items-center">
+                              <span>Engineer: {eng.name} ({rv.engEmail})</span>
+                              <span>•</span>
+                              <span>Recall Date: {fmtDate(rv.date)}</span>
+                            </div>
+                          </div>
+                          <div className="flex flex-col items-end gap-1.5 self-start shrink-0">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-[10px] font-extrabold uppercase text-amber-800">
+                              Van Recall Ticket
+                            </span>
+                            {isProcessing && (
+                              <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-900 border border-slate-700 px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-white animate-pulse">
+                                Processing...
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100 text-xs font-semibold">
+                          <div>
+                            <div className="text-[10px] uppercase font-bold text-slate-400">Qty to Recall</div>
+                            <div className="text-sm font-extrabold text-slate-955">×{rv.qty}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase font-bold text-slate-400">Active Van Stock</div>
+                            <div className="text-sm font-extrabold text-slate-500">×{vanQty} in van</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase font-bold text-slate-400">Reason / Reference</div>
+                            <div className="text-xs text-slate-650 truncate" title={rv.reason}>{rv.reason}</div>
+                          </div>
+                        </div>
+
+                        <div className="flex justify-end gap-2.5">
+                          <button
+                            disabled={isProcessing}
+                            onClick={() => handleRejectRevoke(rv.id)}
+                            className="rounded-xl border border-rose-255 bg-rose-50 text-rose-800 hover:bg-rose-100 px-4 py-2 text-xs font-bold transition disabled:opacity-50"
+                          >
+                            Reject Recall
+                          </button>
+                          <button
+                            disabled={isProcessing}
+                            onClick={() => handleApproveRevoke(rv.id)}
+                            className="rounded-xl bg-indigo-600 text-white hover:bg-slate-900 px-4.5 py-2.5 text-xs font-bold transition shadow-sm disabled:opacity-50"
+                          >
+                            {isProcessing ? 'Processing...' : 'Confirm Recall & Return to Warehouse'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <h2 className="font-display text-sm font-bold text-slate-955">Van Recalls ledger records</h2>
+                    <p className="text-xs text-slate-400">Search and audit closed van recall tickets</p>
+                  </div>
+                  {/* Filters */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={processedRvEngFilter}
+                      onChange={(e) => setProcessedRvEngFilter(e.target.value)}
+                      className="rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold text-slate-600 outline-none"
+                    >
+                      <option value="">All Engineers</option>
+                      {matrixEngineers.map((m) => (
+                        <option key={m.email} value={m.email}>{m.name}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={processedRvSkuFilter}
+                      onChange={(e) => setProcessedRvSkuFilter(e.target.value)}
+                      className="rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold text-slate-600 outline-none"
+                    >
+                      <option value="">All SKUs</option>
+                      {skus.map((s) => (
+                        <option key={s.id} value={s.id}>{s.id} – {s.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto text-xs font-medium">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-100">
+                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">ID</th>
+                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Item</th>
+                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Engineer</th>
+                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Recall Date</th>
+                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Qty Recalled</th>
+                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Reason</th>
+                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
+                      {filteredProcessedRevokes.map((r) => {
+                        const sk = getSku(skus, r.skuId);
+                        const eng = getUser(users, r.engEmail);
+                        const isRejected = r.status === 'Rejected';
+                        return (
+                          <tr key={r.id} className={`hover:bg-slate-50/50 ${isRejected ? 'opacity-60' : ''}`}>
+                            <td className="py-3 px-3"><span className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded border border-slate-150">{r.id}</span></td>
+                            <td className="py-3 px-3"><strong>{sk.name}</strong></td>
+                            <td className="py-3 px-3">{eng.name}</td>
+                            <td className="py-3 px-3 text-slate-500">{fmtDate(r.date)}</td>
+                            <td className="py-3 px-3 font-bold">×{r.qty}</td>
+                            <td className="py-3 px-3 text-slate-550 max-w-xs truncate" title={r.reason}>{r.reason || 'N/A'}</td>
+                            <td className="py-3 px-3">
+                              <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wide border ${r.status === 'Revoked' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'}`}>
+                                {r.status}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
     );
   }
-
-  if (activeTab === 'admin-revoke-approve') {
-    return (
-      <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="font-display text-2xl font-extrabold text-slate-955">Stock Revoke Approvals</h1>
-            <p className="text-sm font-medium text-slate-400">Sanction stock recall proposals submitted by warehouse Store Keeper</p>
-          </div>
-          <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 border border-violet-200 px-3 py-1 text-xs font-bold text-violet-800">
-            {pendingRevokes.length} tickets pending checkout
-          </span>
-        </div>
-
-        <div className="flex border-b border-slate-205">
-          <button onClick={() => setRvActiveTab('pending')} className={`px-4 py-3 text-sm font-bold border-b-2 transition ${rvActiveTab === 'pending' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
-            Pending Recalls ({pendingRevokes.length})
-          </button>
-          <button onClick={() => setRvActiveTab('processed')} className={`px-4 py-3 text-sm font-bold border-b-2 transition ${rvActiveTab === 'processed' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
-            Audit History ({processedRevokes.length})
-          </button>
-        </div>
-
-        {rvActiveTab === 'pending' ? (
-          <div className="space-y-4">
-            {pendingRevokes.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center text-slate-400">
-                <CheckCircle className="mx-auto h-12 w-12 text-emerald-100 mb-2" />
-                <h3 className="font-bold text-slate-900 text-lg">Recall Queue Empty!</h3>
-                <p className="text-sm mt-1 text-slate-500 font-semibold">Every proposed materials revoke has been reconciled.</p>
-              </div>
-            ) : (
-              pendingRevokes.map((rv) => {
-                const engUser = getUser(users, rv.engEmail);
-                const skuItem = getSku(skus, rv.skuId);
-                const currentEngQty = (engineerStock[rv.engEmail] || []).find(v => v.skuId === rv.skuId)?.qty || 0;
-
-                return (
-                  <div key={rv.id} className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm space-y-4 animate-fade-in">
-                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-slate-900">{engUser.name}</span>
-                          <span className="font-mono text-xs font-bold text-slate-450 bg-slate-100 px-2 py-0.5 rounded-md">{rv.id}</span>
-                        </div>
-                        <div className="text-xs font-semibold text-slate-500 mt-1">
-                          Recall proposed date {fmtDate(rv.date)} – references source ticket {rv.reqId}
-                        </div>
-                      </div>
-                      <span className="inline-flex self-start items-center gap-1 rounded-full bg-violet-50 border border-violet-150 px-2.5 py-0.5 text-xs font-bold text-violet-850 animate-pulse">
-                        Revoke Pending
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 rounded-xl bg-slate-50 border border-slate-100 p-3.5 text-xs font-semibold">
-                      <div>
-                        <span className="text-slate-400 block mb-0.5">Product Sku</span>
-                        <span className="font-mono text-xs font-bold text-indigo-750">{rv.skuId}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block mb-0.5">Item Description</span>
-                        <span className="text-xs text-slate-800 font-extrabold block">{skuItem.name}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block mb-0.5">Protested recalls Qty</span>
-                        <span className="text-indigo-650 font-black block">{rv.qty} units</span>
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl border border-violet-100 bg-violet-50/20 p-3.5 flex items-start gap-2.5 text-xs font-medium text-violet-950">
-                      <RotateCcw className="h-5 w-5 text-violet-500 shrink-0 mt-0.5 animate-spin-slow" />
-                      <div>
-                        <strong>Trunk Reverse Deduction:</strong> Approving will subtract <span className="font-bold underline">{rv.qty} units</span> from {engUser.name}'s van holding (Vantrunk trunk assets: {currentEngQty} → {Math.max(0, currentEngQty - rv.qty)} units) and return them directly back onto warehouse shelves.
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end gap-2.5">
-                      <button onClick={() => handleRejectRevoke(rv.id)} className="rounded-xl border border-rose-250 bg-rose-50 px-4 py-2.5 text-xs font-bold text-rose-800 hover:bg-rose-100 transition">Cancel recall</button>
-                      <button onClick={() => handleApproveRevoke(rv.id)} className="rounded-xl bg-violet-600 px-4.5 py-2.5 text-xs font-black text-white hover:bg-slate-900 shadow-md shadow-violet-600/10 transition">Approve & Return Stocks</button>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        ) : (
-          <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
-            <h2 className="font-display text-sm font-bold text-slate-905 mb-4">Reconciled recalls directory</h2>
-            <div className="overflow-x-auto text-sm font-medium">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">ID</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Engineer Profile</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">SKU Code</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Product Title</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Recalled Units</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Audit Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {processedRevokes.map((rv) => (
-                    <tr key={rv.id} className="hover:bg-slate-50/50">
-                      <td className="py-2.5 px-3 text-xs text-slate-400">{rv.id}</td>
-                      <td className="py-2.5 px-3"><strong>{getUser(users, rv.engEmail).name}</strong></td>
-                      <td className="py-2.5 px-3"><span className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded-md">{rv.skuId}</span></td>
-                      <td className="py-2.5 px-3 text-slate-900">{getSku(skus, rv.skuId).name}</td>
-                      <td className="py-2.5 px-3 font-semibold text-rose-600">{rv.qty} recalled</td>
-                      <td className="py-2.5 px-3">
-                        <span
-                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold border ${
-                            rv.status === 'Revoked'
-                              ? 'bg-violet-50 border-violet-150 text-violet-800'
-                              : 'bg-rose-50 border-rose-150 text-rose-800'
-                          }`}
-                        >
-                          {rv.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
   if (activeTab === 'admin-attendance') {
     return (
       <div className="space-y-6 animate-fade-in">
@@ -2000,6 +2172,72 @@ function AdminPagesInner({
                     <td colSpan={4} className="text-center py-6 text-slate-450">No stocking holds recorded inside this vehicle truck.</td>
                   </tr>
                 )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Current Stock Available Report */}
+        <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm space-y-4 animate-fade-in">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h2 className="font-display text-base font-bold text-slate-900">Current Stock Available Report</h2>
+              <p className="text-xs text-slate-400">Warehouse stock availability, valuations, and cost bounds</p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-450" />
+                <input
+                  type="text"
+                  placeholder="Search SKU ID or Item..."
+                  value={invSearchQuery}
+                  onChange={(e) => setInvSearchQuery(e.target.value)}
+                  className="rounded-xl border border-slate-200 bg-white pl-8 pr-3.5 py-1.5 text-xs font-semibold text-slate-655 outline-none focus:border-indigo-650 w-64"
+                />
+              </div>
+
+              <button
+                onClick={downloadAvailableStockCSV}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-slate-900 shadow-sm transition"
+              >
+                <Download className="h-4 w-4" /> Download CSV
+              </button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto text-sm font-medium">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-100">
+                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">SKU ID</th>
+                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Item Description</th>
+                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Available Qty</th>
+                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Unit Price</th>
+                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Total Value</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-705">
+                {inventory.filter((item) => {
+                  if (invSearchQuery.trim()) {
+                    const q = invSearchQuery.toLowerCase();
+                    const sk = getSku(skus, item.skuId);
+                    return item.skuId.toLowerCase().includes(q) || sk.name.toLowerCase().includes(q);
+                  }
+                  return true;
+                }).map((item) => {
+                  const sk = getSku(skus, item.skuId);
+                  const totalVal = item.qty * item.unitPrice;
+                  return (
+                    <tr key={item.skuId} className="hover:bg-slate-50/50">
+                      <td className="py-3 px-3"><span className="font-mono text-xs bg-slate-100 rounded px-1.5 py-0.5">{item.skuId}</span></td>
+                      <td className="py-3 px-3 text-slate-900"><strong>{sk.name}</strong></td>
+                      <td className="py-3 px-3 font-semibold text-slate-800">{item.qty} units</td>
+                      <td className="py-3 px-3 text-slate-600">{fmtCur(item.unitPrice)}</td>
+                      <td className="py-3 px-3 font-bold text-indigo-600">{fmtCur(totalVal)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -2797,482 +3035,439 @@ interface AdminLPApprovalsViewProps {
 }
 
 function AdminLPApprovalsView({ lpRequests, users, onUpdateLpRequests, onAddToast }: AdminLPApprovalsViewProps) {
-    const [subTab, setSubTab] = useState<'pending_lp' | 'pending_claim' | 'claim_approved' | 'processed'>('pending_lp');
+  const [startDateFilter, setStartDateFilter] = useState('');
+  const [endDateFilter, setEndDateFilter] = useState('');
+  const [ledgerSearch, setLedgerSearch] = useState('');
+  const [ledgerStatusFilter, setLedgerStatusFilter] = useState('');
+  const [exportStatus, setExportStatus] = useState('all');
+  const [processingLpIds, setProcessingLpIds] = useState<string[]>([]);
 
-    const handleApproveLp = (id: string) => {
+  // Action Handlers with simulated 1000ms delay & Concurrency guards
+  const handleApproveLp = (id: string) => {
+    if (processingLpIds.includes(id)) return;
+    setProcessingLpIds((prev) => [...prev, id]);
+
+    setTimeout(() => {
       const updated = lpRequests.map((lp) => {
         if (lp.id === id) return { ...lp, status: 'Claim pending' as const };
         return lp;
       });
       onUpdateLpRequests(updated);
-      onAddToast(`LP Request ${id} approved! Status transitions to Claim pending.`, 'success');
-    };
+      onAddToast(`LP Request ${id} approved! Moved to Claim pending.`, 'success');
+      setProcessingLpIds((prev) => prev.filter((x) => x !== id));
+    }, 1000);
+  };
 
-    const handleRejectLp = (id: string) => {
+  const handleRejectLp = (id: string) => {
+    if (processingLpIds.includes(id)) return;
+    setProcessingLpIds((prev) => [...prev, id]);
+
+    setTimeout(() => {
       const updated = lpRequests.map((lp) => {
         if (lp.id === id) return { ...lp, status: 'Rejected' as const };
         return lp;
       });
       onUpdateLpRequests(updated);
       onAddToast(`LP Request ${id} rejected.`, 'success');
-    };
+      setProcessingLpIds((prev) => prev.filter((x) => x !== id));
+    }, 1000);
+  };
 
-    const handleApproveClaim = (id: string) => {
+  const handleApproveClaim = (id: string) => {
+    if (processingLpIds.includes(id)) return;
+    setProcessingLpIds((prev) => [...prev, id]);
+
+    setTimeout(() => {
       const updated = lpRequests.map((lp) => {
         if (lp.id === id) return { ...lp, status: 'Claim approved' as const };
         return lp;
       });
       onUpdateLpRequests(updated);
-      onAddToast(`Claim ${id} Approved successfully! Moved to Claim Approved List.`, 'success');
-    };
+      onAddToast(`Claim ${id} released and fully authorized!`, 'success');
+      setProcessingLpIds((prev) => prev.filter((x) => x !== id));
+    }, 1000);
+  };
 
-    const handleRejectClaim = (id: string) => {
+  const handleRejectClaim = (id: string) => {
+    if (processingLpIds.includes(id)) return;
+    setProcessingLpIds((prev) => [...prev, id]);
+
+    setTimeout(() => {
       const updated = lpRequests.map((lp) => {
         if (lp.id === id) return { ...lp, status: 'Claim pending' as const };
         return lp;
       });
       onUpdateLpRequests(updated);
       onAddToast(`Claim ${id} rejected and returned back to supervisor queue.`, 'success');
-    };
+      setProcessingLpIds((prev) => prev.filter((x) => x !== id));
+    }, 1000);
+  };
 
-    const pendingLp = (lpRequests || []).filter((lp) => lp.status === 'Pending').sort((a, b) => a.date.localeCompare(b.date));
-    const pendingClaim = (lpRequests || []).filter((lp) => lp.status === 'Claim forwarded').sort((a, b) => a.date.localeCompare(b.date));
-    const claimApproved = (lpRequests || []).filter((lp) => lp.status === 'Claim approved').sort((a, b) => b.date.localeCompare(a.date));
+  // Date range verification helper
+  const isWithinDateRange = (dateStr: string) => {
+    if (!dateStr) return true;
+    if (startDateFilter && dateStr < startDateFilter) return false;
+    if (endDateFilter && dateStr > endDateFilter) return false;
+    return true;
+  };
 
-    const otherProcessed = (lpRequests || []).filter((lp) =>
-      !['Pending', 'Claim forwarded', 'Claim approved'].includes(lp.status)
-    ).sort((a, b) => b.date.localeCompare(a.date));
+  // Filtered dataset subsets based on date selection
+  const activeLpRequests = (lpRequests || []).filter((lp) => isWithinDateRange(lp.date));
 
-    const handleDownloadCSV = (currentTab: 'pending_lp' | 'pending_claim' | 'claim_approved' | 'processed') => {
-      let dataToExport: LPRequest[] = [];
-      let filename = 'lp_report';
-      let title = '';
+  // Financial claims calculations (scoped to active date selections)
+  const pendingClaimsItems = activeLpRequests.filter((lp) =>
+    ['Claim pending', 'Claim submitted', 'Claim forwarded'].includes(lp.status)
+  );
+  const totalPendingAmount = pendingClaimsItems.reduce((sum, lp) => sum + lp.spareCost + lp.serviceCost, 0);
 
-      if (currentTab === 'pending_lp') {
-        dataToExport = pendingLp;
-        filename = 'awaiting_lp_approvals';
-        title = 'Awaiting LP Approvals';
-      } else if (currentTab === 'pending_claim') {
-        dataToExport = pendingClaim;
-        filename = 'awaiting_claims_approvals';
-        title = 'Awaiting Claim Approvals';
-      } else if (currentTab === 'claim_approved') {
-        dataToExport = claimApproved;
-        filename = 'approved_lp_claims_ledger';
-        title = 'Claim Approved List';
-      } else {
-        dataToExport = otherProcessed;
-        filename = 'claim_pending_ledger';
-        title = 'Claim Pending Ledger';
-      }
+  const approvedClaimsItems = activeLpRequests.filter((lp) => lp.status === 'Claim approved');
+  const totalApprovedAmount = approvedClaimsItems.reduce((sum, lp) => sum + lp.spareCost + lp.serviceCost, 0);
 
-      const header = ['LP Request ID', 'Job ID', 'Supervisor Name', 'Supervisor Email', 'Date Raised', 'Spare Cost (INR)', 'Service Cost (INR)', 'Total Cost (INR)', 'Status'];
-      const rows = dataToExport.map((lp) => {
-        const u = getUser(users, lp.tlEmail);
-        const total = lp.spareCost + lp.serviceCost;
-        return [lp.id, lp.jobId, u.name, lp.tlEmail, lp.date, lp.spareCost, lp.serviceCost, total, lp.status];
-      });
+  // Queue records: Pending LP and Claims Forwarded
+  const actionQueue = activeLpRequests.filter((lp) =>
+    lp.status === 'Pending' || lp.status === 'Claim forwarded'
+  ).sort((a, b) => a.date.localeCompare(b.date));
 
-      const csvContent = 'data:text/csv;charset=utf-8,' + [header.join(','), ...rows.map((e) => e.map((val) => `"${val}"`).join(','))].join('\n');
-      const encodedUri = encodeURI(csvContent);
-      const link = document.createElement('a');
-      link.setAttribute('href', encodedUri);
-      link.setAttribute('download', `${filename}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      onAddToast(`${title} CSV downloaded!`);
-    };
+  // Ledger records: Processed/Historical entries (everything outside active queue)
+  const ledgerRecords = activeLpRequests.filter((lp) =>
+    lp.status !== 'Pending' && lp.status !== 'Claim forwarded'
+  ).filter((lp) => {
+    // Status filter
+    if (ledgerStatusFilter && lp.status !== ledgerStatusFilter) return false;
 
-    return (
-      <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="font-display text-2xl font-extrabold text-slate-950">Local Purchase Approvals</h1>
-            <p className="text-sm font-medium text-slate-400">Review and authorize on-site spare and services logs</p>
+    // Live text search
+    if (ledgerSearch.trim()) {
+      const query = ledgerSearch.toLowerCase();
+      const sup = getUser(users, lp.tlEmail);
+      return (
+        lp.jobId.toLowerCase().includes(query) ||
+        lp.id.toLowerCase().includes(query) ||
+        sup.name.toLowerCase().includes(query)
+      );
+    }
+    return true;
+  }).sort((a, b) => b.date.localeCompare(a.date));
+
+  // Target CSV exporter (scoped by date range and selected status)
+  const handleDownloadCSV = () => {
+    const dataToExport = activeLpRequests.filter((lp) => {
+      if (exportStatus !== 'all' && lp.status !== exportStatus) return false;
+      return true;
+    });
+
+    const header = ['LP Request ID', 'Job ID', 'Supervisor Name', 'Supervisor Email', 'Date Raised', 'Spare Cost (INR)', 'Service Cost (INR)', 'Total Cost (INR)', 'Status'];
+    const rows = dataToExport.map((lp) => {
+      const u = getUser(users, lp.tlEmail);
+      const total = lp.spareCost + lp.serviceCost;
+      return [lp.id, lp.jobId, u.name, lp.tlEmail, lp.date, lp.spareCost, lp.serviceCost, total, lp.status];
+    });
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + [header.join(','), ...rows.map((e) => e.map((val) => `"${val}"`).join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    
+    const statusLabel = exportStatus.replace(/\s+/g, '_');
+    const dateLabel = startDateFilter || endDateFilter ? `_${startDateFilter || 'start'}_to_${endDateFilter || 'end'}` : '';
+    link.setAttribute('download', `lp_report_${statusLabel}${dateLabel}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    onAddToast(`LP Approvals CSV report downloaded successfully!`);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header section with exporting controls */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h1 className="font-display text-2xl font-extrabold text-slate-950">Local Purchase Approvals</h1>
+          <p className="text-sm font-medium text-slate-400">Review and authorize on-site spare and services logs</p>
+        </div>
+
+        {/* CSV Exporter widget */}
+        <div className="flex flex-wrap items-center gap-2 p-2 bg-slate-50 border border-slate-200/60 rounded-2xl">
+          <select
+            value={exportStatus}
+            onChange={(e) => setExportStatus(e.target.value)}
+            className="rounded-xl border border-slate-205 bg-white px-3 py-2 text-xs font-bold text-slate-655 outline-none"
+          >
+            <option value="all">All Statuses</option>
+            <option value="Pending">Pending LP</option>
+            <option value="Claim pending">Claim pending</option>
+            <option value="Claim submitted">Claim submitted</option>
+            <option value="Claim forwarded">Claim forwarded</option>
+            <option value="Claim approved">Claim approved</option>
+            <option value="Rejected">Rejected</option>
+          </select>
+          <button
+            onClick={handleDownloadCSV}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-slate-900 shadow-sm transition"
+          >
+            <Download className="h-4 w-4" /> Export CSV
+          </button>
+        </div>
+      </div>
+
+      {/* Financial Claims Summary Dashboard Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-5 shadow-xs space-y-1">
+          <span className="text-xs font-bold tracking-wider text-indigo-500 uppercase block">Total Claim Pending Amount</span>
+          <div className="text-2xl font-black text-indigo-900">{fmtCur(totalPendingAmount)}</div>
+          <p className="text-xs text-indigo-400 font-semibold">{pendingClaimsItems.length} transactions pending validation</p>
+        </div>
+
+        <div className="rounded-2xl border border-teal-100 bg-teal-50/40 p-5 shadow-xs space-y-1">
+          <span className="text-xs font-bold tracking-wider text-teal-600 uppercase block">Total Claim Approved Amount</span>
+          <div className="text-2xl font-black text-teal-900">{fmtCur(totalApprovedAmount)}</div>
+          <p className="text-xs text-teal-505 font-semibold">{approvedClaimsItems.length} claims fully authorized</p>
+        </div>
+      </div>
+
+      {/* Date Period Filter Panel */}
+      <div className="rounded-2xl border border-slate-200/50 bg-white p-4 shadow-sm flex flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-4 text-xs font-bold text-slate-500">
+          <div className="flex flex-col gap-1.5">
+            <span>Start Date</span>
+            <input
+              type="date"
+              value={startDateFilter}
+              onChange={(e) => setStartDateFilter(e.target.value)}
+              className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-slate-800 outline-none font-sans focus:border-indigo-650"
+            />
           </div>
-          <div className="flex flex-wrap items-center gap-2.5">
-            <button
-              onClick={() => handleDownloadCSV(subTab)}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 transition shadow-sm"
-            >
-              <Download className="h-4 w-4" /> Export {subTab === 'pending_lp' ? 'Awaiting LP' : subTab === 'pending_claim' ? 'Awaiting Claims' : subTab === 'claim_approved' ? 'Claim Approved' : 'Claim Pending'} List (CSV)
-            </button>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 border border-emerald-200 px-3 py-1 text-xs font-bold text-emerald-850">
-              {pendingLp.length + pendingClaim.length} awaiting authorization
+          <div className="flex flex-col gap-1.5">
+            <span>End Date</span>
+            <input
+              type="date"
+              value={endDateFilter}
+              onChange={(e) => setEndDateFilter(e.target.value)}
+              className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-slate-800 outline-none font-sans focus:border-indigo-650"
+            />
+          </div>
+        </div>
+
+        {/* Active Range Clear Notification Bar */}
+        {(startDateFilter || endDateFilter) && (
+          <div className="rounded-xl border border-indigo-150 bg-indigo-50/40 px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs font-bold text-indigo-950 animate-fade-in">
+            <span>
+              Active Filter Scoped: {startDateFilter ? fmtDate(startDateFilter) : 'Start'} to {endDateFilter ? fmtDate(endDateFilter) : 'End'}
             </span>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-1 border-b border-slate-200 bg-white rounded-lg p-1 border border-slate-100 shadow-sm max-w-fit">
-          <button
-            onClick={() => setSubTab('pending_lp')}
-            className={`px-4 py-2 text-xs font-extrabold uppercase rounded-md tracking-wider transition-all duration-200 ${
-              subTab === 'pending_lp'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-600'
-            }`}
-          >
-            Awaiting LP ({pendingLp.length})
-          </button>
-          <button
-            onClick={() => setSubTab('pending_claim')}
-            className={`px-4 py-2 text-xs font-extrabold uppercase rounded-md tracking-wider transition-all duration-200 ${
-              subTab === 'pending_claim'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-600'
-            }`}
-          >
-            Awaiting Claims ({pendingClaim.length})
-          </button>
-          <button
-            onClick={() => setSubTab('claim_approved')}
-            className={`px-4 py-2 text-xs font-extrabold uppercase rounded-md tracking-wider transition-all duration-200 ${
-              subTab === 'claim_approved'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-600'
-            }`}
-          >
-            Claim Approved List ({claimApproved.length})
-          </button>
-          <button
-            onClick={() => setSubTab('processed')}
-            className={`px-4 py-2 text-xs font-extrabold uppercase rounded-md tracking-wider transition-all duration-200 ${
-              subTab === 'processed'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-600'
-            }`}
-          >
-            Claim Pending ({otherProcessed.length})
-          </button>
-        </div>
-
-        {subTab === 'pending_lp' && (
-          <div className="space-y-4">
-            {pendingLp.length > 0 && (
-              <div className="flex justify-end">
-                <button
-                  onClick={() => handleDownloadCSV('pending_lp')}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50 transition shadow-sm"
-                >
-                  <Download className="h-4 w-4" /> Download Awaiting LP CSV
-                </button>
-              </div>
-            )}
-            {pendingLp.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center text-slate-400">
-                <CheckCircle className="mx-auto h-12 w-12 text-emerald-100 mb-2" />
-                <h3 className="font-bold text-slate-900 text-lg font-display">LP Queue fully cleared!</h3>
-                <p className="text-sm mt-1">Excellent! All matching Local Purchase logs are fully authorized.</p>
-              </div>
-            ) : (
-              pendingLp.map((lp) => {
-                const requester = getUser(users, lp.tlEmail);
-                const total = lp.spareCost + lp.serviceCost;
-                return (
-                  <div key={lp.id} className="rounded-2xl border border-slate-200/50 bg-white p-6 shadow-sm space-y-4">
-                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-slate-950">Job ID: {lp.jobId}</span>
-                          <span className="font-mono text-xs font-bold text-slate-450 bg-slate-100 border border-slate-150 rounded px-2 py-0.5">{lp.id}</span>
-                        </div>
-                        {lp.description && (
-                          <div className="text-xs bg-slate-50 border border-slate-150 p-2.5 rounded-xl font-semibold text-slate-700 mt-1.5 max-w bg-indigo-50/5 text-slate-650">
-                            <strong>Description:</strong> "{lp.description}"
-                          </div>
-                        )}
-                        <div className="text-xs font-bold text-indigo-650 mt-1">
-                          Raised by: {requester.name} ({lp.tlEmail}) on {fmtDate(lp.date)}
-                        </div>
-                      </div>
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-amber-800">
-                        Pending LP Approval
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100 font-semibold text-xs">
-                      <div>
-                        <div className="text-[10px] uppercase font-bold text-slate-400">Spare Cost</div>
-                        <div className="text-sm font-extrabold text-slate-800">{fmtCur(lp.spareCost)}</div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] uppercase font-bold text-slate-400">Service Cost</div>
-                        <div className="text-sm font-extrabold text-slate-800">{fmtCur(lp.serviceCost)}</div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] uppercase font-bold text-slate-400">Total Purchase Value</div>
-                        <div className="text-sm font-black text-indigo-600">{fmtCur(total)}</div>
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end gap-2.5">
-                      <button
-                        onClick={() => handleRejectLp(lp.id)}
-                        className="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100 px-4.5 py-2.5 text-xs font-bold transition"
-                      >
-                        Reject
-                      </button>
-                      <button
-                        onClick={() => handleApproveLp(lp.id)}
-                        className="rounded-xl bg-indigo-600 text-white hover:bg-slate-900 px-4.5 py-2.5 text-xs font-bold transition shadow-sm shadow-indigo-600/10"
-                      >
-                        Approve Local Purchase (Move to Claim pending)
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        )}
-
-        {subTab === 'pending_claim' && (
-          <div className="space-y-4">
-            {pendingClaim.length > 0 && (
-              <div className="flex justify-end">
-                <button
-                  onClick={() => handleDownloadCSV('pending_claim')}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50 transition shadow-sm"
-                >
-                  <Download className="h-4 w-4" /> Download Awaiting Claims CSV
-                </button>
-              </div>
-            )}
-            {pendingClaim.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center text-slate-400">
-                <CheckCircle className="mx-auto h-12 w-12 text-blue-100 mb-2" />
-                <h3 className="font-bold text-slate-900 text-lg font-display">No Claims Pending Admin Approval</h3>
-                <p className="text-sm mt-1">Excellent! All validated local purchase claims have been fully settled.</p>
-              </div>
-            ) : (
-              pendingClaim.map((lp) => {
-                const requester = getUser(users, lp.tlEmail);
-                const total = lp.spareCost + lp.serviceCost;
-                return (
-                  <div key={lp.id} className="rounded-2xl border border-slate-200/50 bg-white p-6 shadow-sm space-y-4 border-l-4 border-l-blue-500">
-                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-slate-950">Job ID: {lp.jobId}</span>
-                          <span className="font-mono text-xs font-bold text-slate-450 bg-slate-100 border border-slate-150 rounded px-2 py-0.5">{lp.id}</span>
-                        </div>
-                        {lp.description && (
-                          <div className="text-xs bg-slate-50 border border-slate-150 p-2.5 rounded-xl font-semibold text-slate-705 mt-1.5 max-w bg-indigo-50/5 text-slate-650">
-                            <strong>Description:</strong> "{lp.description}"
-                          </div>
-                        )}
-                        <div className="text-xs font-bold text-blue-650 mt-1">
-                          Submitted for Claim by: {requester.name} ({lp.tlEmail}) on {fmtDate(lp.date)}
-                        </div>
-                      </div>
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 border border-blue-200 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-blue-850">
-                        Validated by Store Manager
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100 font-semibold text-xs">
-                      <div>
-                        <div className="text-[10px] uppercase font-bold text-slate-400">Spare Cost</div>
-                        <div className="text-sm font-extrabold text-slate-800">{fmtCur(lp.spareCost)}</div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] uppercase font-bold text-slate-400">Service Cost</div>
-                        <div className="text-sm font-extrabold text-slate-800">{fmtCur(lp.serviceCost)}</div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] uppercase font-bold text-slate-400">Claim Total</div>
-                        <div className="text-sm font-black text-indigo-600">{fmtCur(total)}</div>
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end gap-2.5">
-                      <button
-                        onClick={() => handleRejectClaim(lp.id)}
-                        className="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100 px-4.5 py-2.5 text-xs font-bold transition"
-                      >
-                        Reject Claim
-                      </button>
-                      <button
-                        onClick={() => handleApproveClaim(lp.id)}
-                        className="rounded-xl bg-indigo-600 text-white hover:bg-slate-900 px-4.5 py-2.5 text-xs font-bold transition shadow-sm shadow-indigo-600/10"
-                      >
-                        Approve & Release Claim (Move to Claim approved)
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        )}
-
-        {subTab === 'claim_approved' && (
-          <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div>
-                <h2 className="font-display text-sm font-bold text-slate-950">Claim Approved List</h2>
-                <p className="text-xs text-slate-400">Successfully authorized claims ready for accounting reconciliation</p>
-              </div>
-              {claimApproved.length > 0 && (
-                <button
-                  onClick={() => handleDownloadCSV('claim_approved')}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50 transition shadow-sm"
-                >
-                  <Download className="h-4 w-4" /> Download Approved List CSV
-                </button>
-              )}
-            </div>
-
-            <div className="overflow-x-auto text-xs font-medium">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">ID</th>
-                    <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Job ID</th>
-                    <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Supervisor</th>
-                    <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Date Raised</th>
-                    <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Spares</th>
-                    <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Services</th>
-                    <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Total Approved</th>
-                    <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
-                  {claimApproved.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="text-center py-6 text-slate-400 bg-slate-50/10 rounded-lg">
-                        No approved local purchase claims ledgered yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    claimApproved.map((lp) => {
-                      const total = lp.spareCost + lp.serviceCost;
-                      const supervisor = getUser(users, lp.tlEmail);
-                      return (
-                        <tr key={lp.id} className="hover:bg-slate-50/50">
-                          <td className="py-3 px-3">
-                            <span className="font-mono text-slate-650 bg-slate-100 px-2 py-0.5 rounded border border-slate-150">
-                              {lp.id}
-                            </span>
-                          </td>
-                          <td className="py-3 px-3">
-                            <div className="text-slate-955 font-bold">{lp.jobId}</div>
-                            {lp.description && (
-                              <div className="text-[10px] text-slate-400 font-normal mt-0.5 max-w-xs truncate" title={lp.description}>
-                                {lp.description}
-                              </div>
-                            )}
-                          </td>
-                          <td className="py-3 px-3 font-bold">{supervisor.name}</td>
-                          <td className="py-3 px-3 text-slate-500">{fmtDate(lp.date)}</td>
-                          <td className="py-3 px-3 text-slate-600">{fmtCur(lp.spareCost)}</td>
-                          <td className="py-3 px-3 text-slate-600">{fmtCur(lp.serviceCost)}</td>
-                          <td className="py-3 px-3 text-emerald-600 font-bold">{fmtCur(total)}</td>
-                          <td className="py-3 px-3">
-                            <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[9px] font-extrabold uppercase bg-emerald-50 border border-emerald-200 text-emerald-800">
-                              Claim Approved
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {subTab === 'processed' && (
-          <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div>
-                <h2 className="font-display text-sm font-bold text-slate-950">Claim Pending Ledger</h2>
-                <p className="text-xs text-slate-400">Trace coordinate logs of alternate status or pending claim validations</p>
-              </div>
-              {otherProcessed.length > 0 && (
-                <button
-                  onClick={() => handleDownloadCSV('processed')}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50 transition shadow-sm"
-                >
-                  <Download className="h-4 w-4" /> Download Claim Pending CSV
-                </button>
-              )}
-            </div>
-
-            <div className="overflow-x-auto text-xs font-medium">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">ID</th>
-                    <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Job ID</th>
-                    <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Supervisor</th>
-                    <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Date Raised</th>
-                    <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Spares</th>
-                    <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Services</th>
-                    <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Total Cost</th>
-                    <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
-                  {otherProcessed.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="text-center py-6 text-slate-400 bg-slate-50/10 rounded-lg">
-                        No ledgered entries located.
-                      </td>
-                    </tr>
-                  ) : (
-                    otherProcessed.map((lp) => {
-                      const total = lp.spareCost + lp.serviceCost;
-                      const supervisor = getUser(users, lp.tlEmail);
-                      return (
-                        <tr key={lp.id} className="hover:bg-slate-50/50">
-                          <td className="py-3 px-3">
-                            <span className="font-mono text-slate-650 bg-slate-100 px-2 py-0.5 rounded border border-slate-150">
-                              {lp.id}
-                            </span>
-                          </td>
-                          <td className="py-3 px-3">
-                            <div className="text-slate-955 font-bold">{lp.jobId}</div>
-                            {lp.description && (
-                              <div className="text-[10px] text-slate-400 font-normal mt-0.5 max-w-xs truncate" title={lp.description}>
-                                {lp.description}
-                              </div>
-                            )}
-                          </td>
-                          <td className="py-3 px-3 font-bold">{supervisor.name}</td>
-                          <td className="py-3 px-3 text-slate-500">{fmtDate(lp.date)}</td>
-                          <td className="py-3 px-3 text-slate-600">{fmtCur(lp.spareCost)}</td>
-                          <td className="py-3 px-3 text-slate-600">{fmtCur(lp.serviceCost)}</td>
-                          <td className="py-3 px-3 text-indigo-600 font-bold">{fmtCur(total)}</td>
-                          <td className="py-3 px-3">
-                            <span
-                              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide border ${
-                                lp.status === 'Claim pending'
-                                  ? 'bg-amber-50 border-amber-200 text-amber-800'
-                                  : lp.status === 'Claim submitted'
-                                  ? 'bg-violet-50 border-violet-200 text-violet-805'
-                                  : lp.status === 'Rejected'
-                                  ? 'bg-rose-50 border-rose-200 text-rose-800'
-                                  : 'bg-slate-50 border-slate-200 text-slate-500'
-                              }`}
-                            >
-                              {lp.status}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <button
+              onClick={() => {
+                setStartDateFilter('');
+                setEndDateFilter('');
+              }}
+              className="text-indigo-600 hover:text-indigo-855 underline font-extrabold cursor-pointer"
+            >
+              Clear Filter Range
+            </button>
           </div>
         )}
       </div>
-    );
-  }
+
+      {/* Action Required Queue Section */}
+      <div className="space-y-4">
+        <h2 className="font-display text-base font-extrabold text-slate-900">Approval Queue (Action Required)</h2>
+
+        {actionQueue.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center text-slate-400">
+            <CheckCircle className="mx-auto h-12 w-12 text-emerald-100 mb-2" />
+            <h3 className="font-bold text-slate-900 text-lg">Action Queue Empty!</h3>
+            <p className="text-sm mt-1 font-semibold">Every submitted local purchase request or claim has been reconciled.</p>
+          </div>
+        ) : (
+          actionQueue.map((lp) => {
+            const requester = getUser(users, lp.tlEmail);
+            const total = lp.spareCost + lp.serviceCost;
+            const isProcessing = processingLpIds.includes(lp.id);
+            const isLpType = lp.status === 'Pending';
+
+            return (
+              <div
+                key={lp.id}
+                className={`rounded-2xl bg-white p-5 shadow-sm space-y-4 transition-all ${
+                  isLpType
+                    ? 'border border-amber-200 border-l-4 border-l-amber-500'
+                    : 'border border-blue-200 border-l-4 border-l-blue-500'
+                } ${isProcessing ? 'opacity-70 pointer-events-none bg-slate-50' : ''}`}
+              >
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-950">Job ID: {lp.jobId}</span>
+                      <span className="font-mono text-xs font-bold text-slate-400 bg-slate-100 border border-slate-155 rounded px-2 py-0.5">{lp.id}</span>
+                    </div>
+                    {lp.description && (
+                      <div className="text-xs bg-slate-50 border border-slate-150 p-2.5 rounded-xl font-semibold text-slate-700 mt-1.5 max-w bg-indigo-50/5 text-slate-650">
+                        <strong>Description:</strong> "{lp.description}"
+                      </div>
+                    )}
+                    <div className="text-xs font-bold text-indigo-650 mt-1">
+                      Raised by: {requester.name} ({lp.tlEmail}) on {fmtDate(lp.date)}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-end gap-1.5 self-start shrink-0">
+                    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide border ${
+                      isLpType
+                        ? 'bg-amber-50 border-amber-200 text-amber-800'
+                        : 'bg-blue-50 border-blue-205 text-blue-805'
+                    }`}>
+                      {isLpType ? 'Pending LP Approval' : 'Claim Forwarded'}
+                    </span>
+                    {isProcessing && (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-900 border border-slate-700 px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-white animate-pulse">
+                        Processing...
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100 font-semibold text-xs">
+                  <div>
+                    <div className="text-[10px] uppercase font-bold text-slate-400">Spare Cost</div>
+                    <div className="text-sm font-extrabold text-slate-800">{fmtCur(lp.spareCost)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase font-bold text-slate-400">Service Cost</div>
+                    <div className="text-sm font-extrabold text-slate-800">{fmtCur(lp.serviceCost)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase font-bold text-slate-400">Total Purchase Value</div>
+                    <div className="text-sm font-black text-indigo-600">{fmtCur(total)}</div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2.5">
+                  <button
+                    disabled={isProcessing}
+                    onClick={() => (isLpType ? handleRejectLp(lp.id) : handleRejectClaim(lp.id))}
+                    className="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100 px-4.5 py-2.5 text-xs font-bold transition disabled:opacity-50"
+                  >
+                    Reject
+                  </button>
+                  <button
+                    disabled={isProcessing}
+                    onClick={() => (isLpType ? handleApproveLp(lp.id) : handleApproveClaim(lp.id))}
+                    className="rounded-xl bg-indigo-600 text-white hover:bg-slate-900 px-4.5 py-2.5 text-xs font-bold transition shadow-sm shadow-indigo-600/10 disabled:opacity-50"
+                  >
+                    {isProcessing ? 'Processing...' : isLpType ? 'Approve Local Purchase' : 'Approve & Release Claim'}
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Processed Records Ledger Table */}
+      <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-100 pb-4">
+          <div>
+            <h2 className="font-display text-base font-extrabold text-slate-955">Processed Records Ledger</h2>
+            <p className="text-xs text-slate-400">Audit history and transaction tracking for settled purchases and claims</p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-3.5 top-3 h-3.5 w-3.5 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search Job, Request ID, or Supervisor..."
+                value={ledgerSearch}
+                onChange={(e) => setLedgerSearch(e.target.value)}
+                className="rounded-xl border border-slate-200 bg-white pl-9 pr-3.5 py-2 text-xs font-semibold text-slate-655 outline-none focus:border-indigo-650 w-64"
+              />
+            </div>
+
+            <select
+              value={ledgerStatusFilter}
+              onChange={(e) => setLedgerStatusFilter(e.target.value)}
+              className="rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold text-slate-600 outline-none"
+            >
+              <option value="">All Processed Statuses</option>
+              <option value="Claim pending">Claim pending</option>
+              <option value="Claim submitted">Claim submitted</option>
+              <option value="Claim approved">Claim approved</option>
+              <option value="Rejected">Rejected</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto text-xs font-medium">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-slate-100">
+                <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">ID</th>
+                <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Job ID</th>
+                <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Supervisor</th>
+                <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Date Raised</th>
+                <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Spares</th>
+                <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Services</th>
+                <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Total Value</th>
+                <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
+              {ledgerRecords.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="text-center py-6 text-slate-400 bg-slate-50/10 rounded-lg">
+                    No ledger records match filters selected.
+                  </td>
+                </tr>
+              ) : (
+                ledgerRecords.map((lp) => {
+                  const total = lp.spareCost + lp.serviceCost;
+                  const supervisor = getUser(users, lp.tlEmail);
+                  return (
+                    <tr key={lp.id} className="hover:bg-slate-50/50">
+                      <td className="py-3 px-3">
+                        <span className="font-mono text-slate-650 bg-slate-105 px-2 py-0.5 rounded border border-slate-150">
+                          {lp.id}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3">
+                        <div className="text-slate-955 font-bold">{lp.jobId}</div>
+                        {lp.description && (
+                          <div className="text-[10px] text-slate-400 font-normal mt-0.5 max-w-xs truncate" title={lp.description}>
+                            {lp.description}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-3 px-3 font-bold">{supervisor.name}</td>
+                      <td className="py-3 px-3 text-slate-500">{fmtDate(lp.date)}</td>
+                      <td className="py-3 px-3 text-slate-600">{fmtCur(lp.spareCost)}</td>
+                      <td className="py-3 px-3 text-slate-600">{fmtCur(lp.serviceCost)}</td>
+                      <td className="py-3 px-3 text-indigo-650 font-bold">{fmtCur(total)}</td>
+                      <td className="py-3 px-3">
+                        <span
+                          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide border ${
+                            lp.status === 'Claim pending'
+                              ? 'bg-amber-50 border-amber-200 text-amber-800'
+                              : lp.status === 'Claim submitted'
+                              ? 'bg-violet-50 border-violet-200 text-violet-805'
+                              : lp.status === 'Claim approved'
+                              ? 'bg-teal-50 border-teal-250 text-teal-800'
+                              : lp.status === 'Rejected'
+                              ? 'bg-rose-50 border-rose-200 text-rose-800'
+                              : 'bg-slate-50 border-slate-200 text-slate-500'
+                          }`}
+                        >
+                          {lp.status}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // Standalone Modal Sub-Components to avoid nested definitions focus loss
 

@@ -19,7 +19,8 @@ import {
   UserRole,
   LPRequest,
   Organisation,
-  AttendanceRequest
+  AttendanceRequest,
+  ReturnRequest
 } from './types';
 import {
   INITIAL_USERS,
@@ -73,6 +74,7 @@ const STORAGE_KEYS = {
   REVOKES: 'fieldops_revokes',
   LP_REQS: 'fieldops_lp_reqs',
   ATTENDANCE_REQS: 'fieldops_attendance_reqs',
+  RETURNS: 'fieldops_returns',
   ORGANISATIONS: 'fieldops_organisations',
   LOGGED_USER: 'fieldops_logged_user',
 };
@@ -151,6 +153,10 @@ export default function App() {
     const list = getStoredOrDefault(STORAGE_KEYS.ATTENDANCE_REQS, []);
     return list.map(req => ({ ...req, orgId: req.orgId || 'org-001' }));
   });
+  const [returnRequests, setReturnRequests] = useState<ReturnRequest[]>(() => {
+    const list = getStoredOrDefault(STORAGE_KEYS.RETURNS, []);
+    return list.map(req => ({ ...req, orgId: req.orgId || 'org-001' }));
+  });
 
   // Authenticated state
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -214,8 +220,11 @@ export default function App() {
         list.push(doc.data() as User);
       });
       if (list.length > 0) {
-        setUsers(list);
-        localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(list));
+        setUsers((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(list));
+          return list;
+        });
       }
     }, (error) => handleFirestoreError(error, OperationType.GET, 'users'));
 
@@ -225,8 +234,11 @@ export default function App() {
         list.push(doc.data() as SKU);
       });
       if (list.length > 0) {
-        setSkus(list);
-        localStorage.setItem(STORAGE_KEYS.SKUS, JSON.stringify(list));
+        setSkus((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.SKUS, JSON.stringify(list));
+          return list;
+        });
       }
     }, (error) => handleFirestoreError(error, OperationType.GET, 'skus'));
 
@@ -236,8 +248,11 @@ export default function App() {
         list.push(doc.data() as InventoryItem);
       });
       if (list.length > 0) {
-        setInventory(list);
-        localStorage.setItem(STORAGE_KEYS.INVENTORY, JSON.stringify(list));
+        setInventory((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.INVENTORY, JSON.stringify(list));
+          return list;
+        });
       }
     }, (error) => handleFirestoreError(error, OperationType.GET, 'inventory'));
 
@@ -249,8 +264,11 @@ export default function App() {
           obj[data.email] = data.stock || [];
         }
       });
-      setEngineerStock(obj);
-      localStorage.setItem(STORAGE_KEYS.ENG_STOCK, JSON.stringify(obj));
+      setEngineerStock((prev) => {
+        if (JSON.stringify(prev) === JSON.stringify(obj)) return prev;
+        localStorage.setItem(STORAGE_KEYS.ENG_STOCK, JSON.stringify(obj));
+        return obj;
+      });
     }, (error) => handleFirestoreError(error, OperationType.GET, 'engineerStock'));
 
     const unsubLogs = onSnapshot(collection(db, 'productivityLogs'), (snapshot) => {
@@ -258,8 +276,11 @@ export default function App() {
       snapshot.forEach((doc) => {
         list.push(doc.data() as ProductivityLog);
       });
-      setProductivityLogs(list);
-      localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(list));
+      setProductivityLogs((prev) => {
+        if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+        localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(list));
+        return list;
+      });
     }, (error) => handleFirestoreError(error, OperationType.GET, 'productivityLogs'));
 
     const unsubAttendance = onSnapshot(collection(db, 'attendance'), (snapshot) => {
@@ -270,8 +291,11 @@ export default function App() {
           obj[data.email] = data.dates || {};
         }
       });
-      setAttendance(obj);
-      localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(obj));
+      setAttendance((prev) => {
+        if (JSON.stringify(prev) === JSON.stringify(obj)) return prev;
+        localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(obj));
+        return obj;
+      });
     }, (error) => handleFirestoreError(error, OperationType.GET, 'attendance'));
 
     const unsubStockReqs = onSnapshot(collection(db, 'stockRequests'), (snapshot) => {
@@ -279,8 +303,11 @@ export default function App() {
       snapshot.forEach((doc) => {
         list.push(doc.data() as StockRequest);
       });
-      setStockRequests(list);
-      localStorage.setItem(STORAGE_KEYS.STOCK_REQS, JSON.stringify(list));
+      setStockRequests((prev) => {
+        if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+        localStorage.setItem(STORAGE_KEYS.STOCK_REQS, JSON.stringify(list));
+        return list;
+      });
     }, (error) => handleFirestoreError(error, OperationType.GET, 'stockRequests'));
 
     const unsubPurchases = onSnapshot(collection(db, 'purchaseInward'), (snapshot) => {
@@ -288,8 +315,11 @@ export default function App() {
       snapshot.forEach((doc) => {
         list.push(doc.data() as PurchaseInward);
       });
-      setPurchaseInward(list);
-      localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify(list));
+      setPurchaseInward((prev) => {
+        if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+        localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify(list));
+        return list;
+      });
     }, (error) => handleFirestoreError(error, OperationType.GET, 'purchaseInward'));
 
     const unsubRevokes = onSnapshot(collection(db, 'revokeRequests'), (snapshot) => {
@@ -297,8 +327,11 @@ export default function App() {
       snapshot.forEach((doc) => {
         list.push(doc.data() as RevokeRequest);
       });
-      setRevokeRequests(list);
-      localStorage.setItem(STORAGE_KEYS.REVOKES, JSON.stringify(list));
+      setRevokeRequests((prev) => {
+        if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+        localStorage.setItem(STORAGE_KEYS.REVOKES, JSON.stringify(list));
+        return list;
+      });
     }, (error) => handleFirestoreError(error, OperationType.GET, 'revokeRequests'));
 
     const unsubLpReqs = onSnapshot(collection(db, 'lpRequests'), (snapshot) => {
@@ -306,8 +339,11 @@ export default function App() {
       snapshot.forEach((doc) => {
         list.push(doc.data() as LPRequest);
       });
-      setLpRequests(list);
-      localStorage.setItem(STORAGE_KEYS.LP_REQS, JSON.stringify(list));
+      setLpRequests((prev) => {
+        if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+        localStorage.setItem(STORAGE_KEYS.LP_REQS, JSON.stringify(list));
+        return list;
+      });
     }, (error) => handleFirestoreError(error, OperationType.GET, 'lpRequests'));
 
     const unsubAttendanceReqs = onSnapshot(collection(db, 'attendanceRequests'), (snapshot) => {
@@ -315,9 +351,24 @@ export default function App() {
       snapshot.forEach((doc) => {
         list.push(doc.data() as AttendanceRequest);
       });
-      setAttendanceRequests(list);
-      localStorage.setItem(STORAGE_KEYS.ATTENDANCE_REQS, JSON.stringify(list));
+      setAttendanceRequests((prev) => {
+        if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+        localStorage.setItem(STORAGE_KEYS.ATTENDANCE_REQS, JSON.stringify(list));
+        return list;
+      });
     }, (error) => handleFirestoreError(error, OperationType.GET, 'attendanceRequests'));
+
+    const unsubReturnRequests = onSnapshot(collection(db, 'returnRequests'), (snapshot) => {
+      const list: ReturnRequest[] = [];
+      snapshot.forEach((doc) => {
+        list.push(doc.data() as ReturnRequest);
+      });
+      setReturnRequests((prev) => {
+        if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+        localStorage.setItem(STORAGE_KEYS.RETURNS, JSON.stringify(list));
+        return list;
+      });
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'returnRequests'));
 
     const unsubOrgs = onSnapshot(collection(db, 'organisations'), (snapshot) => {
       const list: Organisation[] = [];
@@ -325,8 +376,11 @@ export default function App() {
         list.push(doc.data() as Organisation);
       });
       if (list.length > 0) {
-        setOrganisations(list);
-        localStorage.setItem(STORAGE_KEYS.ORGANISATIONS, JSON.stringify(list));
+        setOrganisations((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.ORGANISATIONS, JSON.stringify(list));
+          return list;
+        });
       }
     }, (error) => handleFirestoreError(error, OperationType.GET, 'organisations'));
 
@@ -342,9 +396,40 @@ export default function App() {
       unsubRevokes();
       unsubLpReqs();
       unsubAttendanceReqs();
+      unsubReturnRequests();
       unsubOrgs();
     };
   }, [offlineMode]);
+
+  // Self-healing: Ensure all approved productivity logs are synced to the attendance register
+  useEffect(() => {
+    if (offlineMode || productivityLogs.length === 0) return;
+
+    let needsSync = false;
+    const nextAttendance = { ...attendance };
+
+    for (const log of productivityLogs) {
+      if (log.status === 'Approved') {
+        const userAtt = nextAttendance[log.engEmail];
+        if (!userAtt || userAtt[log.date] !== 'Present') {
+          if (!nextAttendance[log.engEmail]) {
+            nextAttendance[log.engEmail] = {};
+          }
+          nextAttendance[log.engEmail] = {
+            ...nextAttendance[log.engEmail],
+            [log.date]: 'Present'
+          };
+          needsSync = true;
+        }
+      }
+    }
+
+    if (needsSync) {
+      console.log('Self-healing: Syncing approved productivity logs to attendance register...');
+      syncState(STORAGE_KEYS.ATTENDANCE, nextAttendance, setAttendance);
+    }
+  }, [productivityLogs, attendance, offlineMode]);
+
 
   // Sync back state utilities with Firestore & LocalStorage fallback
   const syncState = async <T,>(key: string, value: T, setter: React.Dispatch<React.SetStateAction<T>>) => {
@@ -365,7 +450,10 @@ export default function App() {
           await deleteDocument('users', du.email);
         }
         for (const u of usersList) {
-          await writeDocument('users', u.email, u);
+          const existing = users.find((x) => x.email === u.email);
+          if (!existing || JSON.stringify(existing) !== JSON.stringify(u)) {
+            await writeDocument('users', u.email, u);
+          }
         }
       } else if (key === STORAGE_KEYS.SKUS) {
         const skusList = value as SKU[];
@@ -378,7 +466,10 @@ export default function App() {
           }
           for (const s of skusList) {
             const docId = `${s.orgId || 'org-001'}_${s.id}`;
-            await writeDocument('skus', docId, s);
+            const existing = skus.find((x) => x.id === s.id && (x.orgId || 'org-001') === (s.orgId || 'org-001'));
+            if (!existing || JSON.stringify(existing) !== JSON.stringify(s)) {
+              await writeDocument('skus', docId, s);
+            }
           }
         } else {
           const currentDocIds = skusList.map(s => `${s.orgId || activeOrgId}_${s.id}`);
@@ -388,54 +479,93 @@ export default function App() {
           }
           for (const s of skusList) {
             const docId = `${s.orgId || activeOrgId}_${s.id}`;
-            await writeDocument('skus', docId, { ...s, orgId: s.orgId || activeOrgId });
+            const existing = skus.find((x) => x.id === s.id && (x.orgId || activeOrgId) === (s.orgId || activeOrgId));
+            const updatedSku = { ...s, orgId: s.orgId || activeOrgId };
+            if (!existing || JSON.stringify(existing) !== JSON.stringify(updatedSku)) {
+              await writeDocument('skus', docId, updatedSku);
+            }
           }
         }
       } else if (key === STORAGE_KEYS.INVENTORY) {
         const inventoryList = value as InventoryItem[];
         for (const i of inventoryList) {
           const docId = `${i.orgId || 'org-001'}_${i.skuId}`;
-          await writeDocument('inventory', docId, i);
+          const existing = inventory.find((x) => x.skuId === i.skuId && (x.orgId || 'org-001') === (i.orgId || 'org-001'));
+          if (!existing || JSON.stringify(existing) !== JSON.stringify(i)) {
+            await writeDocument('inventory', docId, i);
+          }
         }
       } else if (key === STORAGE_KEYS.ENG_STOCK) {
         const engStockObj = value as EngineerStock;
         for (const [email, stock] of Object.entries(engStockObj)) {
-          await writeDocument('engineerStock', email, { email, stock });
+          const existing = engineerStock[email];
+          if (!existing || JSON.stringify(existing) !== JSON.stringify(stock)) {
+            await writeDocument('engineerStock', email, { email, stock });
+          }
         }
       } else if (key === STORAGE_KEYS.LOGS) {
         const logsList = value as ProductivityLog[];
         for (const l of logsList) {
-          await writeDocument('productivityLogs', l.id, l);
+          const existing = productivityLogs.find((x) => x.id === l.id);
+          if (!existing || JSON.stringify(existing) !== JSON.stringify(l)) {
+            await writeDocument('productivityLogs', l.id, l);
+          }
         }
       } else if (key === STORAGE_KEYS.ATTENDANCE) {
         const attendanceObj = value as AttendanceRecord;
         for (const [email, dates] of Object.entries(attendanceObj)) {
-          await writeDocument('attendance', email, { email, dates });
+          const existing = attendance[email];
+          if (!existing || JSON.stringify(existing) !== JSON.stringify(dates)) {
+            await writeDocument('attendance', email, { email, dates });
+          }
         }
       } else if (key === STORAGE_KEYS.STOCK_REQS) {
         const reqsList = value as StockRequest[];
         for (const r of reqsList) {
-          await writeDocument('stockRequests', r.id, r);
+          const existing = stockRequests.find((x) => x.id === r.id);
+          if (!existing || JSON.stringify(existing) !== JSON.stringify(r)) {
+            await writeDocument('stockRequests', r.id, r);
+          }
         }
       } else if (key === STORAGE_KEYS.PURCHASES) {
         const purchasesList = value as PurchaseInward[];
         for (const p of purchasesList) {
-          await writeDocument('purchaseInward', p.id, p);
+          const existing = purchaseInward.find((x) => x.id === p.id);
+          if (!existing || JSON.stringify(existing) !== JSON.stringify(p)) {
+            await writeDocument('purchaseInward', p.id, p);
+          }
         }
       } else if (key === STORAGE_KEYS.REVOKES) {
         const revokesList = value as RevokeRequest[];
         for (const r of revokesList) {
-          await writeDocument('revokeRequests', r.id, r);
+          const existing = revokeRequests.find((x) => x.id === r.id);
+          if (!existing || JSON.stringify(existing) !== JSON.stringify(r)) {
+            await writeDocument('revokeRequests', r.id, r);
+          }
         }
       } else if (key === STORAGE_KEYS.LP_REQS) {
         const lpList = value as LPRequest[];
         for (const lp of lpList) {
-          await writeDocument('lpRequests', lp.id, lp);
+          const existing = lpRequests.find((x) => x.id === lp.id);
+          if (!existing || JSON.stringify(existing) !== JSON.stringify(lp)) {
+            await writeDocument('lpRequests', lp.id, lp);
+          }
         }
       } else if (key === STORAGE_KEYS.ATTENDANCE_REQS) {
         const reqsList = value as AttendanceRequest[];
         for (const req of reqsList) {
-          await writeDocument('attendanceRequests', req.id, req);
+          const existing = attendanceRequests.find((x) => x.id === req.id);
+          if (!existing || JSON.stringify(existing) !== JSON.stringify(req)) {
+            await writeDocument('attendanceRequests', req.id, req);
+          }
+        }
+      } else if (key === STORAGE_KEYS.RETURNS) {
+        const returnsList = value as ReturnRequest[];
+        for (const r of returnsList) {
+          const existing = returnRequests.find((x) => x.id === r.id);
+          if (!existing || JSON.stringify(existing) !== JSON.stringify(r)) {
+            await writeDocument('returnRequests', r.id, r);
+          }
         }
       } else if (key === STORAGE_KEYS.ORGANISATIONS) {
         const orgsList = value as Organisation[];
@@ -445,7 +575,10 @@ export default function App() {
           await deleteDocument('organisations', dor.id);
         }
         for (const o of orgsList) {
-          await writeDocument('organisations', o.id, o);
+          const existing = organisations.find((x) => x.id === o.id);
+          if (!existing || JSON.stringify(existing) !== JSON.stringify(o)) {
+            await writeDocument('organisations', o.id, o);
+          }
         }
       }
     } catch (err) {
@@ -691,11 +824,24 @@ export default function App() {
               ? productivityLogs 
               : productivityLogs.filter(l => currentOrgUsersByMail.has(l.engEmail.toLowerCase()) || l.orgId === userOrgId);
 
+            const mergedAttendance: AttendanceRecord = {};
+            for (const [email, dates] of Object.entries(attendance)) {
+              mergedAttendance[email] = { ...(dates as any) };
+            }
+            for (const log of productivityLogs) {
+              if (log.status === 'Approved') {
+                if (!mergedAttendance[log.engEmail]) {
+                  mergedAttendance[log.engEmail] = {};
+                }
+                mergedAttendance[log.engEmail][log.date] = 'Present';
+              }
+            }
+
             const filteredAttendance = isSuperAdmin 
-              ? attendance 
-              : Object.keys(attendance).reduce((acc, email) => {
+              ? mergedAttendance 
+              : Object.keys(mergedAttendance).reduce((acc, email) => {
                   if (currentOrgUsersByMail.has(email.toLowerCase())) {
-                    acc[email] = attendance[email];
+                    acc[email] = mergedAttendance[email];
                   }
                   return acc;
                 }, {} as AttendanceRecord);
@@ -716,6 +862,10 @@ export default function App() {
             const filteredAttendanceRequests = isSuperAdmin 
               ? attendanceRequests 
               : attendanceRequests.filter(req => req.orgId === userOrgId);
+
+            const filteredReturnRequests = isSuperAdmin 
+              ? returnRequests 
+              : returnRequests.filter(r => currentOrgUsersByMail.has(r.engEmail.toLowerCase()) || r.orgId === userOrgId);
 
             if (currentUser.role === 'Super Admin') {
               return (
@@ -815,6 +965,7 @@ export default function App() {
                   attendance={filteredAttendance}
                   stockRequests={filteredStockRequests}
                   purchaseInward={filteredPurchases}
+                  returnRequests={filteredReturnRequests}
                   activeTab={activeTab}
                   lpRequests={filteredLpRequests}
                   productivityLogs={filteredLogs}
@@ -865,14 +1016,12 @@ export default function App() {
 
                       // add to engineer stock
                       const updatedEngStock = { ...engineerStock };
-                      if (!updatedEngStock[req.engEmail]) {
-                        updatedEngStock[req.engEmail] = [];
-                      }
-                      const holds = [...updatedEngStock[req.engEmail]];
-                      const existingItem = holds.find((h) => h.skuId === req.skuId);
-                      if (existingItem) {
-                        existingItem.qty += req.qty;
-                      } else {
+                      const currentHolds = updatedEngStock[req.engEmail] || [];
+                      const holds = currentHolds.map((h) => {
+                        if (h.skuId === req.skuId) return { ...h, qty: h.qty + req.qty };
+                        return h;
+                      });
+                      if (!currentHolds.some((h) => h.skuId === req.skuId)) {
                         holds.push({ skuId: req.skuId, qty: req.qty });
                       }
                       updatedEngStock[req.engEmail] = holds;
@@ -911,6 +1060,55 @@ export default function App() {
 
                     syncState(STORAGE_KEYS.STOCK_REQS, updatedStockRequests, setStockRequests);
                     syncState(STORAGE_KEYS.REVOKES, updatedRevokes, setRevokeRequests);
+                  }}
+                  onUpdateSkus={(s) => {
+                    const withOrg = s.map(x => ({ ...x, orgId: x.orgId || userOrgId }));
+                    const others = skus.filter(x => x.orgId !== userOrgId);
+                    syncState(STORAGE_KEYS.SKUS, [...others, ...withOrg], setSkus);
+                  }}
+                  onUpdateInventory={(i) => {
+                    const withOrg = i.map(x => ({ ...x, orgId: x.orgId || userOrgId }));
+                    const others = inventory.filter(x => x.orgId !== userOrgId);
+                    syncState(STORAGE_KEYS.INVENTORY, [...others, ...withOrg], setInventory);
+                  }}
+                  onProcessReturnRequest={(id, status) => {
+                    const req = returnRequests.find((r) => r.id === id);
+                    if (!req) return;
+
+                    const updatedReturns = returnRequests.map((r) => {
+                      if (r.id === id) return { ...r, status, orgId: r.orgId || userOrgId };
+                      return r;
+                    });
+
+                    if (status === 'Approved') {
+                      const updatedInventory = inventory.map((i) => {
+                        if (i.skuId === req.skuId && i.orgId === userOrgId) {
+                          return { ...i, qty: i.qty + req.qty };
+                        }
+                        return i;
+                      });
+                      if (!inventory.some((i) => i.skuId === req.skuId && i.orgId === userOrgId)) {
+                        updatedInventory.push({ skuId: req.skuId, qty: req.qty, unitPrice: 0, orgId: userOrgId });
+                      }
+
+                      const updatedEngStock = { ...engineerStock };
+                      const currentHolds = updatedEngStock[req.engEmail] || [];
+                      const holds = currentHolds.map((h) => {
+                        if (h.skuId === req.skuId) {
+                          return { ...h, qty: Math.max(0, h.qty - req.qty) };
+                        }
+                        return h;
+                      });
+                      updatedEngStock[req.engEmail] = holds;
+
+                      syncState(STORAGE_KEYS.INVENTORY, updatedInventory, setInventory);
+                      syncState(STORAGE_KEYS.ENG_STOCK, updatedEngStock, setEngineerStock);
+                      addToast(`Approved stock return: +${req.qty} of ${getSku(skus, req.skuId).name} added back to main warehouse.`, 'success');
+                    } else {
+                      addToast(`Rejected stock return request from ${req.engEmail}.`, 'success');
+                    }
+
+                    syncState(STORAGE_KEYS.RETURNS, updatedReturns, setReturnRequests);
                   }}
                   onAddToast={addToast}
                 />
@@ -968,6 +1166,7 @@ export default function App() {
                   productivityLogs={filteredLogs}
                   attendance={filteredAttendance}
                   stockRequests={filteredStockRequests}
+                  returnRequests={filteredReturnRequests}
                   activeTab={activeTab}
                   onUpdateLogs={(updated) => {
                     const withOrg = updated.map(x => ({ ...x, orgId: x.orgId || userOrgId }));
@@ -977,6 +1176,10 @@ export default function App() {
                   onAddStockRequest={(req) => {
                     const withOrg = { ...req, orgId: userOrgId };
                     syncState(STORAGE_KEYS.STOCK_REQS, [...stockRequests, withOrg], setStockRequests);
+                  }}
+                  onAddReturnRequest={(req) => {
+                    const withOrg = { ...req, orgId: userOrgId };
+                    syncState(STORAGE_KEYS.RETURNS, [...returnRequests, withOrg], setReturnRequests);
                   }}
                   onUpdateStockRequests={(updated) => {
                     const withOrg = updated.map(x => ({ ...x, orgId: x.orgId || userOrgId }));
