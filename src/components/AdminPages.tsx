@@ -103,10 +103,10 @@ function AdminPagesInner({
   // --- 1. PRODUCTIVITY QUEUE STATE & LOGIC ---
   const [adApproveTab, setAdApproveTab] = useState<'pending' | 'processed'>('pending');
 
-  const [vanStockSortKey, setVanStockSortKey] = useState<'profile' | 'sku' | 'description' | 'qty'>('profile');
+  const [vanStockSortKey, setVanStockSortKey] = useState<'profile' | 'sku' | 'description' | 'qty' | 'value'>('profile');
   const [vanStockSortAsc, setVanStockSortAsc] = useState<boolean>(true);
 
-  const toggleVanStockSort = (key: 'profile' | 'sku' | 'description' | 'qty') => {
+  const toggleVanStockSort = (key: 'profile' | 'sku' | 'description' | 'qty' | 'value') => {
     if (vanStockSortKey === key) {
       setVanStockSortAsc(!vanStockSortAsc);
     } else {
@@ -688,6 +688,9 @@ function AdminPagesInner({
   const [invVendorSelector, setInvVendorSelector] = useState('');
   const [invStatusSelector, setInvStatusSelector] = useState('');
   const [invEngStockSelector, setInvEngStockSelector] = useState('');
+  const [invSkuStockSelector, setInvSkuStockSelector] = useState('');
+  const [inwardFromDate, setInwardFromDate] = useState('');
+  const [inwardToDate, setInwardToDate] = useState('');
   const [activeInventoryTab, setActiveInventoryTab] = useState<'warehouse' | 'shipments' | 'engineer'>('warehouse');
 
 
@@ -698,7 +701,9 @@ function AdminPagesInner({
     const filtered = purchaseInward.filter((p) => {
       const matchV = !invVendorSelector || p.vendor === invVendorSelector;
       const matchS = !invStatusSelector || p.status === invStatusSelector;
-      return matchV && matchS;
+      const matchFrom = !inwardFromDate || p.date >= inwardFromDate;
+      const matchTo = !inwardToDate || p.date <= inwardToDate;
+      return matchV && matchS && matchFrom && matchTo;
     });
 
     return [...filtered].sort((a, b) => {
@@ -749,15 +754,18 @@ function AdminPagesInner({
   };
 
   const downloadVanStockDetailedCSV = () => {
-    const header = ['Engineer Name', 'Email Address', 'SKU Code ID', 'Item Name', 'Car Trunk holding Qty'];
+    const header = ['Engineer Name', 'Email Address', 'SKU Code ID', 'Item Name', 'Car Trunk holding Qty', 'Valuation Value'];
     const rows: string[][] = [];
 
     Object.entries(engineerStock).forEach(([email, items]) => {
       if (invEngStockSelector && email !== invEngStockSelector) return;
       const eng = getUser(users, email);
       items.forEach((item) => {
+        if (invSkuStockSelector && item.skuId !== invSkuStockSelector) return;
         const sk = getSku(skus, item.skuId);
-        rows.push([eng.name, email, item.skuId, sk.name, String(item.qty)]);
+        const invItem = getInvItem(inventory, item.skuId);
+        const value = item.qty * invItem.unitPrice;
+        rows.push([eng.name, email, item.skuId, sk.name, String(item.qty), String(value)]);
       });
     });
 
@@ -2250,17 +2258,24 @@ function AdminPagesInner({
 
       return items.map((item) => {
         const sk = getSku(skus, item.skuId);
+        const invItem = getInvItem(inventory, item.skuId);
+        const value = item.qty * invItem.unitPrice;
         return {
           email,
           engineerName: userRecord.name,
           skuId: item.skuId,
           itemName: sk.name,
-          qty: item.qty
+          qty: item.qty,
+          value
         };
       });
     });
 
-    const sortedVanStock = [...flattenedVanStock].sort((a, b) => {
+    const filteredVanStock = flattenedVanStock.filter((item) => {
+      return !invSkuStockSelector || item.skuId === invSkuStockSelector;
+    });
+
+    const sortedVanStock = [...filteredVanStock].sort((a, b) => {
       let comparison = 0;
       if (vanStockSortKey === 'profile') {
         comparison = a.engineerName.localeCompare(b.engineerName) || a.email.localeCompare(b.email);
@@ -2270,6 +2285,8 @@ function AdminPagesInner({
         comparison = a.itemName.localeCompare(b.itemName);
       } else if (vanStockSortKey === 'qty') {
         comparison = a.qty - b.qty;
+      } else if (vanStockSortKey === 'value') {
+        comparison = a.value - b.value;
       }
       return vanStockSortAsc ? comparison : -comparison;
     });
@@ -2476,7 +2493,27 @@ function AdminPagesInner({
                   <p className="text-xs text-slate-400">Dynamically reconciles incoming deliveries recorded by store managers</p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] uppercase font-bold text-slate-400">From</span>
+                    <input
+                      type="date"
+                      value={inwardFromDate}
+                      onChange={(e) => setInwardFromDate(e.target.value)}
+                      className="rounded-xl border border-slate-205 bg-white p-2.5 text-xs font-semibold text-slate-655 outline-none focus:border-indigo-650"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] uppercase font-bold text-slate-400">To</span>
+                    <input
+                      type="date"
+                      value={inwardToDate}
+                      onChange={(e) => setInwardToDate(e.target.value)}
+                      className="rounded-xl border border-slate-205 bg-white p-2.5 text-xs font-semibold text-slate-655 outline-none focus:border-indigo-650"
+                    />
+                  </div>
+
                   <select
                     value={invVendorSelector}
                     onChange={(e) => setInvVendorSelector(e.target.value)}
@@ -2501,19 +2538,32 @@ function AdminPagesInner({
 
                   <button
                     onClick={downloadWarehouseInwardsFilteredCSV}
-                    className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 transition"
+                    className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
                   >
                     <Download className="h-4 w-4" /> Export receipts CSV
                   </button>
                 </div>
               </div>
 
-              {(invVendorSelector || invStatusSelector) && (
+              {(invVendorSelector || invStatusSelector || inwardFromDate || inwardToDate) && (
                 <div className="rounded-xl border border-indigo-150 bg-indigo-50/40 p-3 flex flex-wrap gap-x-6 gap-y-1 text-xs font-bold text-indigo-955">
                   <span className="text-indigo-700">Suppliers Matched: {invVendorSelector || 'All Suppliers'}</span>
+                  {inwardFromDate && <span className="text-indigo-700">From Date: {inwardFromDate}</span>}
+                  {inwardToDate && <span className="text-indigo-700">To Date: {inwardToDate}</span>}
                   <span>Matched ticket count: {filteredWarehouseInwards.length}</span>
                   <span>Matched material Units: {matchedInwardQty} units</span>
                   <span>Audit cash points: {fmtCur(matchedInwardVal)}</span>
+                  <button
+                    onClick={() => {
+                      setInvVendorSelector('');
+                      setInvStatusSelector('');
+                      setInwardFromDate('');
+                      setInwardToDate('');
+                    }}
+                    className="ml-auto text-indigo-650 hover:text-indigo-850 hover:underline cursor-pointer"
+                  >
+                    Clear Filter
+                  </button>
                 </div>
               )}
 
@@ -2628,9 +2678,20 @@ function AdminPagesInner({
                     ))}
                   </select>
 
+                  <select
+                    value={invSkuStockSelector}
+                    onChange={(e) => setInvSkuStockSelector(e.target.value)}
+                    className="rounded-xl border border-slate-205 bg-white p-2.5 text-xs font-semibold text-slate-655 outline-none focus:border-indigo-600"
+                  >
+                    <option value="">All SKUs ({skus.length})</option>
+                    {skus.map((s) => (
+                      <option key={s.id} value={s.id}>{s.id} – {s.name}</option>
+                    ))}
+                  </select>
+
                   <button
                     onClick={downloadVanStockDetailedCSV}
-                    className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-655 hover:bg-slate-50 transition"
+                    className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-655 hover:bg-slate-50 transition cursor-pointer"
                   >
                     <Download className="h-4 w-4" /> Download Van balance CSV
                   </button>
@@ -2665,10 +2726,18 @@ function AdminPagesInner({
                       >
                         Stock Available{renderSortIndicator('qty', vanStockSortKey, vanStockSortAsc)}
                       </th>
+                      <th
+                        onClick={() => toggleVanStockSort('value')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                        style={{ textAlign: 'right' }}
+                      >
+                        Value{renderSortIndicator('value', vanStockSortKey, vanStockSortAsc)}
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-700">
                     {sortedVanStock.map((item) => {
+                      const sk = getSku(skus, item.skuId);
                       return (
                         <tr key={`${item.email}-${item.skuId}`} className="hover:bg-slate-50/50">
                           <td className="py-3 px-3 whitespace-nowrap">
@@ -2681,13 +2750,14 @@ function AdminPagesInner({
                           </td>
                           <td className="py-3 px-3 text-slate-900">{item.itemName}</td>
                           <td className="py-3 px-3 font-bold text-slate-900">{item.qty} units allocated</td>
+                          <td className="py-3 px-3 text-right font-bold text-slate-900">{fmtCur(item.value)}</td>
                         </tr>
                       );
                     })}
                     {sortedVanStock.length === 0 && (
                       <tr>
-                        <td colSpan={4} className="text-center py-6 text-slate-450">
-                          No stocking holds recorded inside this vehicle truck.
+                        <td colSpan={5} className="text-center py-6 text-slate-450">
+                          No matching stocking holds recorded inside this vehicle truck.
                         </td>
                       </tr>
                     )}
