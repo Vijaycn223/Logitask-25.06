@@ -191,12 +191,44 @@ function AdminPagesInner({
     return matchEng && matchSearch && matchDate;
   });
 
-  const filteredProcessedLogs = processedLogs.filter((l) => {
+  const unsortedProcessedLogs = processedLogs.filter((l) => {
     const matchEng = !processedLogEngFilter || l.engEmail === processedLogEngFilter;
     const matchStatus = !processedLogStatusFilter || l.status === processedLogStatusFilter;
     const matchSearch = !processedLogSearch || l.id.toLowerCase().includes(processedLogSearch.toLowerCase());
     const matchDate = !processedLogDateFilter || l.date.includes(processedLogDateFilter);
     return matchEng && matchStatus && matchSearch && matchDate;
+  });
+
+  const filteredProcessedLogs = [...unsortedProcessedLogs].sort((a, b) => {
+    let comparison = 0;
+    const engA = getUser(users, a.engEmail);
+    const engB = getUser(users, b.engEmail);
+    const revA = a.accessories.reduce((s, acc) => s + acc.saleValue, 0);
+    const revB = b.accessories.reduce((s, acc) => s + acc.saleValue, 0);
+    const incA = a.accessories.reduce((s, acc) => s + (acc.adminIncentive || 0), 0);
+    const incB = b.accessories.reduce((s, acc) => s + (acc.adminIncentive || 0), 0);
+
+    if (payrollSortKey === 'id') {
+      comparison = a.id.localeCompare(b.id);
+    } else if (payrollSortKey === 'name') {
+      comparison = engA.name.localeCompare(engB.name);
+    } else if (payrollSortKey === 'date') {
+      comparison = a.date.localeCompare(b.date);
+    } else if (payrollSortKey === 'calls') {
+      comparison = a.callsClosed - b.callsClosed;
+    } else if (payrollSortKey === 'gross') {
+      comparison = revA - revB;
+    } else if (payrollSortKey === 'rcpVal') {
+      comparison = (a.rcpCollected || 0) - (b.rcpCollected || 0);
+    } else if (payrollSortKey === 'rcpQty') {
+      comparison = (a.rcpQty || 0) - (b.rcpQty || 0);
+    } else if (payrollSortKey === 'payout') {
+      comparison = incA - incB;
+    } else if (payrollSortKey === 'status') {
+      comparison = a.status.localeCompare(b.status);
+    }
+
+    return payrollSortAsc ? comparison : -comparison;
   });
 
   const handleIncentiveChange = (logId: string, accIdx: number, val: string) => {
@@ -573,9 +605,87 @@ function AdminPagesInner({
     }
   };
 
-  const renderSortIndicator = (key: 'profile' | 'sku' | 'description' | 'qty') => {
-    if (vanStockSortKey === key) {
-      return vanStockSortAsc ? ' ▲' : ' ▼';
+  // Warehouse stocks sorting
+  const [whStockSortKey, setWhStockSortKey] = useState<'sku' | 'name' | 'qty' | 'price' | 'value'>('sku');
+  const [whStockSortAsc, setWhStockSortAsc] = useState<boolean>(true);
+
+  const toggleWhStockSort = (key: 'sku' | 'name' | 'qty' | 'price' | 'value') => {
+    if (whStockSortKey === key) {
+      setWhStockSortAsc(!whStockSortAsc);
+    } else {
+      setWhStockSortKey(key);
+      setWhStockSortAsc(true);
+    }
+  };
+
+  // Purchase shipments sorting
+  const [shipmentSortKey, setShipmentSortKey] = useState<'id' | 'sku' | 'name' | 'qty' | 'vendor' | 'value' | 'status'>('id');
+  const [shipmentSortAsc, setShipmentSortAsc] = useState<boolean>(true);
+
+  const toggleShipmentSort = (key: 'id' | 'sku' | 'name' | 'qty' | 'vendor' | 'value' | 'status') => {
+    if (shipmentSortKey === key) {
+      setShipmentSortAsc(!shipmentSortAsc);
+    } else {
+      setShipmentSortKey(key);
+      setShipmentSortAsc(true);
+    }
+  };
+
+  // Engineer Performance Roster sorting
+  const [perfRosterSortKey, setPerfRosterSortKey] = useState<'name' | 'present' | 'calls' | 'revenue' | 'rcpVal' | 'rcpQty' | 'perCall'>('name');
+  const [perfRosterSortAsc, setPerfRosterSortAsc] = useState<boolean>(true);
+
+  const togglePerfRosterSort = (key: 'name' | 'present' | 'calls' | 'revenue' | 'rcpVal' | 'rcpQty' | 'perCall') => {
+    if (perfRosterSortKey === key) {
+      setPerfRosterSortAsc(!perfRosterSortAsc);
+    } else {
+      setPerfRosterSortKey(key);
+      setPerfRosterSortAsc(true);
+    }
+  };
+
+  // Processed Records Ledger in LP Approvals sorting
+  const [ledgerSortKey, setLedgerSortKey] = useState<'id' | 'job' | 'supervisor' | 'date' | 'spares' | 'services' | 'total' | 'status'>('id');
+  const [ledgerSortAsc, setLedgerSortAsc] = useState<boolean>(true);
+
+  const toggleLedgerSort = (key: 'id' | 'job' | 'supervisor' | 'date' | 'spares' | 'services' | 'total' | 'status') => {
+    if (ledgerSortKey === key) {
+      setLedgerSortAsc(!ledgerSortAsc);
+    } else {
+      setLedgerSortKey(key);
+      setLedgerSortAsc(true);
+    }
+  };
+
+  // Audit log cargo tracking sorting
+  const [cargoSortKey, setCargoSortKey] = useState<'id' | 'item' | 'vendor' | 'date' | 'qty' | 'price' | 'value' | 'status'>('id');
+  const [cargoSortAsc, setCargoSortAsc] = useState<boolean>(true);
+
+  const toggleCargoSort = (key: 'id' | 'item' | 'vendor' | 'date' | 'qty' | 'price' | 'value' | 'status') => {
+    if (cargoSortKey === key) {
+      setCargoSortAsc(!cargoSortAsc);
+    } else {
+      setCargoSortKey(key);
+      setCargoSortAsc(true);
+    }
+  };
+
+  // Payroll Processed Queue sorting
+  const [payrollSortKey, setPayrollSortKey] = useState<'id' | 'name' | 'date' | 'calls' | 'gross' | 'rcpVal' | 'rcpQty' | 'payout' | 'status'>('id');
+  const [payrollSortAsc, setPayrollSortAsc] = useState<boolean>(true);
+
+  const togglePayrollSort = (key: 'id' | 'name' | 'date' | 'calls' | 'gross' | 'rcpVal' | 'rcpQty' | 'payout' | 'status') => {
+    if (payrollSortKey === key) {
+      setPayrollSortAsc(!payrollSortAsc);
+    } else {
+      setPayrollSortKey(key);
+      setPayrollSortAsc(true);
+    }
+  };
+
+  const renderSortIndicator = (currentKey: string, activeKey: string, ascending: boolean) => {
+    if (activeKey === currentKey) {
+      return ascending ? ' ▲' : ' ▼';
     }
     return '';
   };
@@ -583,10 +693,34 @@ function AdminPagesInner({
   const inventoryValueSum = inventory.reduce((s, i) => s + i.qty * i.unitPrice, 0);
 
   const getFilteredWarehouseInwards = () => {
-    return purchaseInward.filter((p) => {
+    const filtered = purchaseInward.filter((p) => {
       const matchV = !invVendorSelector || p.vendor === invVendorSelector;
       const matchS = !invStatusSelector || p.status === invStatusSelector;
       return matchV && matchS;
+    });
+
+    return [...filtered].sort((a, b) => {
+      let comparison = 0;
+      const skA = getSku(skus, a.skuId);
+      const skB = getSku(skus, b.skuId);
+
+      if (shipmentSortKey === 'id') {
+        comparison = a.id.localeCompare(b.id);
+      } else if (shipmentSortKey === 'sku') {
+        comparison = a.skuId.localeCompare(b.skuId);
+      } else if (shipmentSortKey === 'name') {
+        comparison = skA.name.localeCompare(skB.name);
+      } else if (shipmentSortKey === 'qty') {
+        comparison = a.qty - b.qty;
+      } else if (shipmentSortKey === 'vendor') {
+        comparison = (a.vendor || '').localeCompare(b.vendor || '');
+      } else if (shipmentSortKey === 'value') {
+        comparison = (a.qty * a.unitPrice) - (b.qty * b.unitPrice);
+      } else if (shipmentSortKey === 'status') {
+        comparison = a.status.localeCompare(b.status);
+      }
+
+      return shipmentSortAsc ? comparison : -comparison;
     });
   };
 
@@ -1239,16 +1373,61 @@ function AdminPagesInner({
             <div className="overflow-x-auto text-sm font-medium">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">ID</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Staff Profile</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Entry Date</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Calls Closed</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Gross Sales Point</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">RCP Collected</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">RCP Qty</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Payout Cash</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Audit Status</th>
+                  <tr className="border-b border-slate-100 select-none">
+                    <th
+                      onClick={() => togglePayrollSort('id')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      ID{renderSortIndicator('id', payrollSortKey, payrollSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => togglePayrollSort('name')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      Staff Profile{renderSortIndicator('name', payrollSortKey, payrollSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => togglePayrollSort('date')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      Entry Date{renderSortIndicator('date', payrollSortKey, payrollSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => togglePayrollSort('calls')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      Calls Closed{renderSortIndicator('calls', payrollSortKey, payrollSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => togglePayrollSort('gross')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      Gross Sales Point{renderSortIndicator('gross', payrollSortKey, payrollSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => togglePayrollSort('rcpVal')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      RCP Collected{renderSortIndicator('rcpVal', payrollSortKey, payrollSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => togglePayrollSort('rcpQty')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      RCP Qty{renderSortIndicator('rcpQty', payrollSortKey, payrollSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => togglePayrollSort('payout')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      Payout Cash{renderSortIndicator('payout', payrollSortKey, payrollSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => togglePayrollSort('status')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      Audit Status{renderSortIndicator('status', payrollSortKey, payrollSortAsc)}
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1305,11 +1484,37 @@ function AdminPagesInner({
       return matchSku && matchVendor && matchDate;
     });
 
-    const filteredProcessedPurchases = processedPurchases.filter((p) => {
+    const unsortedProcessedPurchases = processedPurchases.filter((p) => {
       const matchSku = !processedPiSkuFilter || p.skuId === processedPiSkuFilter;
       const matchVendor = !processedPiVendorFilter || p.vendor === processedPiVendorFilter;
       const matchDate = !processedPiDateFilter || p.date.includes(processedPiDateFilter);
       return matchSku && matchVendor && matchDate;
+    });
+
+    const filteredProcessedPurchases = [...unsortedProcessedPurchases].sort((a, b) => {
+      let comparison = 0;
+      const skA = getSku(skus, a.skuId);
+      const skB = getSku(skus, b.skuId);
+
+      if (cargoSortKey === 'id') {
+        comparison = a.id.localeCompare(b.id);
+      } else if (cargoSortKey === 'item') {
+        comparison = skA.name.localeCompare(skB.name);
+      } else if (cargoSortKey === 'vendor') {
+        comparison = (a.vendor || '').localeCompare(b.vendor || '');
+      } else if (cargoSortKey === 'date') {
+        comparison = a.date.localeCompare(b.date);
+      } else if (cargoSortKey === 'qty') {
+        comparison = a.qty - b.qty;
+      } else if (cargoSortKey === 'price') {
+        comparison = a.unitPrice - b.unitPrice;
+      } else if (cargoSortKey === 'value') {
+        comparison = (a.qty * a.unitPrice) - (b.qty * b.unitPrice);
+      } else if (cargoSortKey === 'status') {
+        comparison = a.status.localeCompare(b.status);
+      }
+
+      return cargoSortAsc ? comparison : -comparison;
     });
 
     const filteredPendingRevokes = pendingRevokes.filter((r) => {
@@ -1541,15 +1746,55 @@ function AdminPagesInner({
                 <div className="overflow-x-auto text-xs font-medium">
                   <table className="w-full text-left border-collapse">
                     <thead>
-                      <tr className="border-b border-slate-100">
-                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">ID</th>
-                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Item</th>
-                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Vendor</th>
-                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Inward Date</th>
-                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Qty</th>
-                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">UnitPrice</th>
-                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Total Value</th>
-                        <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Status</th>
+                      <tr className="border-b border-slate-100 select-none">
+                        <th
+                          onClick={() => toggleCargoSort('id')}
+                          className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                        >
+                          ID{renderSortIndicator('id', cargoSortKey, cargoSortAsc)}
+                        </th>
+                        <th
+                          onClick={() => toggleCargoSort('item')}
+                          className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                        >
+                          Item{renderSortIndicator('item', cargoSortKey, cargoSortAsc)}
+                        </th>
+                        <th
+                          onClick={() => toggleCargoSort('vendor')}
+                          className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                        >
+                          Vendor{renderSortIndicator('vendor', cargoSortKey, cargoSortAsc)}
+                        </th>
+                        <th
+                          onClick={() => toggleCargoSort('date')}
+                          className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                        >
+                          Inward Date{renderSortIndicator('date', cargoSortKey, cargoSortAsc)}
+                        </th>
+                        <th
+                          onClick={() => toggleCargoSort('qty')}
+                          className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                        >
+                          Qty{renderSortIndicator('qty', cargoSortKey, cargoSortAsc)}
+                        </th>
+                        <th
+                          onClick={() => toggleCargoSort('price')}
+                          className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                        >
+                          UnitPrice{renderSortIndicator('price', cargoSortKey, cargoSortAsc)}
+                        </th>
+                        <th
+                          onClick={() => toggleCargoSort('value')}
+                          className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                        >
+                          Total Value{renderSortIndicator('value', cargoSortKey, cargoSortAsc)}
+                        </th>
+                        <th
+                          onClick={() => toggleCargoSort('status')}
+                          className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                        >
+                          Status{renderSortIndicator('status', cargoSortKey, cargoSortAsc)}
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
@@ -2139,22 +2384,65 @@ function AdminPagesInner({
               <div className="overflow-x-auto text-sm font-medium">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-100">
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">SKU ID</th>
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Item Description</th>
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Available Qty</th>
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Unit Price</th>
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Total Value</th>
+                    <tr className="border-b border-slate-100 select-none">
+                      <th
+                        onClick={() => toggleWhStockSort('sku')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        SKU ID{renderSortIndicator('sku', whStockSortKey, whStockSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleWhStockSort('name')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Item Description{renderSortIndicator('name', whStockSortKey, whStockSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleWhStockSort('qty')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Available Qty{renderSortIndicator('qty', whStockSortKey, whStockSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleWhStockSort('price')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Unit Price{renderSortIndicator('price', whStockSortKey, whStockSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleWhStockSort('value')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Total Value{renderSortIndicator('value', whStockSortKey, whStockSortAsc)}
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-705">
-                    {inventory.filter((item) => {
+                    {[...inventory.filter((item) => {
                       if (invSearchQuery.trim()) {
                         const q = invSearchQuery.toLowerCase();
                         const sk = getSku(skus, item.skuId);
                         return item.skuId.toLowerCase().includes(q) || sk.name.toLowerCase().includes(q);
                       }
                       return true;
+                    })].sort((a, b) => {
+                      let comparison = 0;
+                      const skA = getSku(skus, a.skuId);
+                      const skB = getSku(skus, b.skuId);
+
+                      if (whStockSortKey === 'sku') {
+                        comparison = a.skuId.localeCompare(b.skuId);
+                      } else if (whStockSortKey === 'name') {
+                        comparison = skA.name.localeCompare(skB.name);
+                      } else if (whStockSortKey === 'qty') {
+                        comparison = a.qty - b.qty;
+                      } else if (whStockSortKey === 'price') {
+                        comparison = a.unitPrice - b.unitPrice;
+                      } else if (whStockSortKey === 'value') {
+                        comparison = (a.qty * a.unitPrice) - (b.qty * b.unitPrice);
+                      }
+
+                      return whStockSortAsc ? comparison : -comparison;
                     }).map((item) => {
                       const sk = getSku(skus, item.skuId);
                       const totalVal = item.qty * item.unitPrice;
@@ -2230,14 +2518,49 @@ function AdminPagesInner({
               <div className="overflow-x-auto text-sm font-medium">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-100">
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">ID</th>
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">SKU</th>
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Item Description</th>
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Qty Received</th>
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Invoiced Vendor Supplier</th>
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Invoice Sum Value</th>
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Audit Status</th>
+                    <tr className="border-b border-slate-100 select-none">
+                      <th
+                        onClick={() => toggleShipmentSort('id')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        ID{renderSortIndicator('id', shipmentSortKey, shipmentSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleShipmentSort('sku')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        SKU{renderSortIndicator('sku', shipmentSortKey, shipmentSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleShipmentSort('name')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Item Description{renderSortIndicator('name', shipmentSortKey, shipmentSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleShipmentSort('qty')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Qty Received{renderSortIndicator('qty', shipmentSortKey, shipmentSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleShipmentSort('vendor')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Invoiced Vendor Supplier{renderSortIndicator('vendor', shipmentSortKey, shipmentSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleShipmentSort('value')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Invoice Sum Value{renderSortIndicator('value', shipmentSortKey, shipmentSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleShipmentSort('status')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Audit Status{renderSortIndicator('status', shipmentSortKey, shipmentSortAsc)}
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -2320,25 +2643,25 @@ function AdminPagesInner({
                         onClick={() => toggleVanStockSort('profile')}
                         className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
                       >
-                        Engineer Profile{renderSortIndicator('profile')}
+                        Engineer Profile{renderSortIndicator('profile', vanStockSortKey, vanStockSortAsc)}
                       </th>
                       <th
                         onClick={() => toggleVanStockSort('sku')}
                         className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
                       >
-                        SKU Code{renderSortIndicator('sku')}
+                        SKU Code{renderSortIndicator('sku', vanStockSortKey, vanStockSortAsc)}
                       </th>
                       <th
                         onClick={() => toggleVanStockSort('description')}
                         className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
                       >
-                        Item Description{renderSortIndicator('description')}
+                        Item Description{renderSortIndicator('description', vanStockSortKey, vanStockSortAsc)}
                       </th>
                       <th
                         onClick={() => toggleVanStockSort('qty')}
                         className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
                       >
-                        Stock Available{renderSortIndicator('qty')}
+                        Stock Available{renderSortIndicator('qty', vanStockSortKey, vanStockSortAsc)}
                       </th>
                     </tr>
                   </thead>
@@ -2729,10 +3052,30 @@ function AdminPagesInner({
     });
 
     // 4. Filter by search query
-    const filteredMetrics = processedMetrics.filter(m => 
+    const unsortedFilteredMetrics = processedMetrics.filter(m => 
       m.name.toLowerCase().includes(engineerSearchQuery.toLowerCase()) ||
       m.email.toLowerCase().includes(engineerSearchQuery.toLowerCase())
     );
+
+    const filteredMetrics = [...unsortedFilteredMetrics].sort((a, b) => {
+      let comparison = 0;
+      if (perfRosterSortKey === 'name') {
+        comparison = a.name.localeCompare(b.name);
+      } else if (perfRosterSortKey === 'present') {
+        comparison = a.presentDays - b.presentDays;
+      } else if (perfRosterSortKey === 'calls') {
+        comparison = a.callsClosed - b.callsClosed;
+      } else if (perfRosterSortKey === 'revenue') {
+        comparison = a.revenueGenerated - b.revenueGenerated;
+      } else if (perfRosterSortKey === 'rcpVal') {
+        comparison = a.rcpGenerated - b.rcpGenerated;
+      } else if (perfRosterSortKey === 'rcpQty') {
+        comparison = a.rcpQty - b.rcpQty;
+      } else if (perfRosterSortKey === 'perCall') {
+        comparison = a.perCallRevenue - b.perCallRevenue;
+      }
+      return perfRosterSortAsc ? comparison : -comparison;
+    });
 
     // 5. Aggregate overall metrics for the selected month
     const totalPresentDays = processedMetrics.reduce((sum, m) => sum + m.presentDays, 0);
@@ -2896,14 +3239,49 @@ function AdminPagesInner({
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-100">
-                  <th className="py-3.5 px-4 text-xs font-bold tracking-wider text-slate-400">Engineer Name</th>
-                  <th className="py-3.5 px-4 text-xs font-bold tracking-wider text-slate-400 text-center">Days Present</th>
-                  <th className="py-3.5 px-4 text-xs font-bold tracking-wider text-slate-400 text-center">Calls Closed</th>
-                  <th className="py-3.5 px-4 text-xs font-bold tracking-wider text-slate-400">Revenue Generated</th>
-                  <th className="py-3.5 px-4 text-xs font-bold tracking-wider text-slate-400">RCP Generated</th>
-                  <th className="py-3.5 px-4 text-xs font-bold tracking-wider text-slate-400">RCP Qty</th>
-                  <th className="py-3.5 px-4 text-xs font-bold tracking-wider text-slate-400">Per Call Revenue</th>
+                <tr className="border-b border-slate-100 select-none">
+                  <th
+                    onClick={() => togglePerfRosterSort('name')}
+                    className="py-3.5 px-4 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    Engineer Name{renderSortIndicator('name', perfRosterSortKey, perfRosterSortAsc)}
+                  </th>
+                  <th
+                    onClick={() => togglePerfRosterSort('present')}
+                    className="py-3.5 px-4 text-xs font-bold tracking-wider text-slate-400 text-center cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    Days Present{renderSortIndicator('present', perfRosterSortKey, perfRosterSortAsc)}
+                  </th>
+                  <th
+                    onClick={() => togglePerfRosterSort('calls')}
+                    className="py-3.5 px-4 text-xs font-bold tracking-wider text-slate-400 text-center cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    Calls Closed{renderSortIndicator('calls', perfRosterSortKey, perfRosterSortAsc)}
+                  </th>
+                  <th
+                    onClick={() => togglePerfRosterSort('revenue')}
+                    className="py-3.5 px-4 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    Revenue Generated{renderSortIndicator('revenue', perfRosterSortKey, perfRosterSortAsc)}
+                  </th>
+                  <th
+                    onClick={() => togglePerfRosterSort('rcpVal')}
+                    className="py-3.5 px-4 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    RCP Generated{renderSortIndicator('rcpVal', perfRosterSortKey, perfRosterSortAsc)}
+                  </th>
+                  <th
+                    onClick={() => togglePerfRosterSort('rcpQty')}
+                    className="py-3.5 px-4 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    RCP Qty{renderSortIndicator('rcpQty', perfRosterSortKey, perfRosterSortAsc)}
+                  </th>
+                  <th
+                    onClick={() => togglePerfRosterSort('perCall')}
+                    className="py-3.5 px-4 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    Per Call Revenue{renderSortIndicator('perCall', perfRosterSortKey, perfRosterSortAsc)}
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm font-medium">
@@ -3172,6 +3550,25 @@ function AdminLPApprovalsView({ lpRequests, users, onUpdateLpRequests, onAddToas
   const [exportStatus, setExportStatus] = useState('all');
   const [processingLpIds, setProcessingLpIds] = useState<string[]>([]);
 
+  const [ledgerSortKey, setLedgerSortKey] = useState<'id' | 'job' | 'supervisor' | 'date' | 'spares' | 'services' | 'total' | 'status'>('id');
+  const [ledgerSortAsc, setLedgerSortAsc] = useState<boolean>(true);
+
+  const toggleLedgerSort = (key: 'id' | 'job' | 'supervisor' | 'date' | 'spares' | 'services' | 'total' | 'status') => {
+    if (ledgerSortKey === key) {
+      setLedgerSortAsc(!ledgerSortAsc);
+    } else {
+      setLedgerSortKey(key);
+      setLedgerSortAsc(true);
+    }
+  };
+
+  const renderSortIndicator = (currentKey: string, activeKey: string, ascending: boolean) => {
+    if (activeKey === currentKey) {
+      return ascending ? ' ▲' : ' ▼';
+    }
+    return '';
+  };
+
   // Action Handlers with simulated 1000ms delay & Concurrency guards
   const handleApproveLp = (id: string) => {
     if (processingLpIds.includes(id)) return;
@@ -3259,7 +3656,7 @@ function AdminLPApprovalsView({ lpRequests, users, onUpdateLpRequests, onAddToas
   ).sort((a, b) => a.date.localeCompare(b.date));
 
   // Ledger records: Processed/Historical entries (everything outside active queue)
-  const ledgerRecords = activeLpRequests.filter((lp) =>
+  const unsortedLedgerRecords = activeLpRequests.filter((lp) =>
     lp.status !== 'Pending' && lp.status !== 'Claim forwarded'
   ).filter((lp) => {
     // Status filter
@@ -3276,7 +3673,33 @@ function AdminLPApprovalsView({ lpRequests, users, onUpdateLpRequests, onAddToas
       );
     }
     return true;
-  }).sort((a, b) => b.date.localeCompare(a.date));
+  });
+
+  const ledgerRecords = [...unsortedLedgerRecords].sort((a, b) => {
+    let comparison = 0;
+    const supA = getUser(users, a.tlEmail);
+    const supB = getUser(users, b.tlEmail);
+
+    if (ledgerSortKey === 'id') {
+      comparison = a.id.localeCompare(b.id);
+    } else if (ledgerSortKey === 'job') {
+      comparison = a.jobId.localeCompare(b.jobId);
+    } else if (ledgerSortKey === 'supervisor') {
+      comparison = supA.name.localeCompare(supB.name);
+    } else if (ledgerSortKey === 'date') {
+      comparison = a.date.localeCompare(b.date);
+    } else if (ledgerSortKey === 'spares') {
+      comparison = a.spareCost - b.spareCost;
+    } else if (ledgerSortKey === 'services') {
+      comparison = a.serviceCost - b.serviceCost;
+    } else if (ledgerSortKey === 'total') {
+      comparison = (a.spareCost + a.serviceCost) - (b.spareCost + b.serviceCost);
+    } else if (ledgerSortKey === 'status') {
+      comparison = a.status.localeCompare(b.status);
+    }
+
+    return ledgerSortAsc ? comparison : -comparison;
+  });
 
   // Target CSV exporter (scoped by date range and selected status)
   const handleDownloadCSV = () => {
@@ -3528,15 +3951,55 @@ function AdminLPApprovalsView({ lpRequests, users, onUpdateLpRequests, onAddToas
         <div className="overflow-x-auto text-xs font-medium">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="border-b border-slate-100">
-                <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">ID</th>
-                <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Job ID</th>
-                <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Supervisor</th>
-                <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Date Raised</th>
-                <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Spares</th>
-                <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Services</th>
-                <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Total Value</th>
-                <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">Status</th>
+              <tr className="border-b border-slate-100 select-none">
+                <th
+                  onClick={() => toggleLedgerSort('id')}
+                  className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                >
+                  ID{renderSortIndicator('id', ledgerSortKey, ledgerSortAsc)}
+                </th>
+                <th
+                  onClick={() => toggleLedgerSort('job')}
+                  className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                >
+                  Job ID{renderSortIndicator('job', ledgerSortKey, ledgerSortAsc)}
+                </th>
+                <th
+                  onClick={() => toggleLedgerSort('supervisor')}
+                  className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                >
+                  Supervisor{renderSortIndicator('supervisor', ledgerSortKey, ledgerSortAsc)}
+                </th>
+                <th
+                  onClick={() => toggleLedgerSort('date')}
+                  className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                >
+                  Date Raised{renderSortIndicator('date', ledgerSortKey, ledgerSortAsc)}
+                </th>
+                <th
+                  onClick={() => toggleLedgerSort('spares')}
+                  className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                >
+                  Spares{renderSortIndicator('spares', ledgerSortKey, ledgerSortAsc)}
+                </th>
+                <th
+                  onClick={() => toggleLedgerSort('services')}
+                  className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                >
+                  Services{renderSortIndicator('services', ledgerSortKey, ledgerSortAsc)}
+                </th>
+                <th
+                  onClick={() => toggleLedgerSort('total')}
+                  className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                >
+                  Total Value{renderSortIndicator('total', ledgerSortKey, ledgerSortAsc)}
+                </th>
+                <th
+                  onClick={() => toggleLedgerSort('status')}
+                  className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                >
+                  Status{renderSortIndicator('status', ledgerSortKey, ledgerSortAsc)}
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
