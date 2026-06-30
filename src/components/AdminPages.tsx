@@ -561,6 +561,25 @@ function AdminPagesInner({
   const [invEngStockSelector, setInvEngStockSelector] = useState('');
   const [activeInventoryTab, setActiveInventoryTab] = useState<'warehouse' | 'shipments' | 'engineer'>('warehouse');
 
+  const [vanStockSortKey, setVanStockSortKey] = useState<'profile' | 'sku' | 'description' | 'qty'>('profile');
+  const [vanStockSortAsc, setVanStockSortAsc] = useState<boolean>(true);
+
+  const toggleVanStockSort = (key: 'profile' | 'sku' | 'description' | 'qty') => {
+    if (vanStockSortKey === key) {
+      setVanStockSortAsc(!vanStockSortAsc);
+    } else {
+      setVanStockSortKey(key);
+      setVanStockSortAsc(true);
+    }
+  };
+
+  const renderSortIndicator = (key: 'profile' | 'sku' | 'description' | 'qty') => {
+    if (vanStockSortKey === key) {
+      return vanStockSortAsc ? ' ▲' : ' ▼';
+    }
+    return '';
+  };
+
   const inventoryValueSum = inventory.reduce((s, i) => s + i.qty * i.unitPrice, 0);
 
   const getFilteredWarehouseInwards = () => {
@@ -1977,6 +1996,37 @@ function AdminPagesInner({
     const activeStaffEngs = users.filter((x) => x.role === 'Engineer');
     const selectedTruckHoldings = engineerStock[invEngStockSelector] || [];
 
+    // Flatten and sort the items
+    const flattenedVanStock = Object.entries(engineerStock).flatMap(([email, items]) => {
+      if (invEngStockSelector && email !== invEngStockSelector) return [];
+      const userRecord = getUser(users, email);
+
+      return items.map((item) => {
+        const sk = getSku(skus, item.skuId);
+        return {
+          email,
+          engineerName: userRecord.name,
+          skuId: item.skuId,
+          itemName: sk.name,
+          qty: item.qty
+        };
+      });
+    });
+
+    const sortedVanStock = [...flattenedVanStock].sort((a, b) => {
+      let comparison = 0;
+      if (vanStockSortKey === 'profile') {
+        comparison = a.engineerName.localeCompare(b.engineerName) || a.email.localeCompare(b.email);
+      } else if (vanStockSortKey === 'sku') {
+        comparison = a.skuId.localeCompare(b.skuId);
+      } else if (vanStockSortKey === 'description') {
+        comparison = a.itemName.localeCompare(b.itemName);
+      } else if (vanStockSortKey === 'qty') {
+        comparison = a.qty - b.qty;
+      }
+      return vanStockSortAsc ? comparison : -comparison;
+    });
+
     return (
       <div className="space-y-6">
         <div>
@@ -2265,33 +2315,55 @@ function AdminPagesInner({
               <div className="overflow-x-auto text-sm font-medium">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-100">
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Engineer Profile</th>
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">SKU Code</th>
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Item Description</th>
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Stock Available</th>
+                    <tr className="border-b border-slate-100 select-none">
+                      <th
+                        onClick={() => toggleVanStockSort('profile')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Engineer Profile{renderSortIndicator('profile')}
+                      </th>
+                      <th
+                        onClick={() => toggleVanStockSort('sku')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        SKU Code{renderSortIndicator('sku')}
+                      </th>
+                      <th
+                        onClick={() => toggleVanStockSort('description')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Item Description{renderSortIndicator('description')}
+                      </th>
+                      <th
+                        onClick={() => toggleVanStockSort('qty')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Stock Available{renderSortIndicator('qty')}
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-700">
-                    {Object.entries(engineerStock).flatMap(([email, items]) => {
-                      if (invEngStockSelector && email !== invEngStockSelector) return [];
-                      const userRecord = getUser(users, email);
-
-                      return items.map((item, idx) => {
-                        const sk = getSku(skus, item.skuId);
-                        return (
-                          <tr key={`${email}-${item.skuId}`} className="hover:bg-slate-50/50">
-                            <td className="py-3 px-3 whitespace-nowrap"><strong>{userRecord.name}</strong><br /><span className="text-[10px] text-slate-400">{email}</span></td>
-                            <td className="py-3 px-3"><span className="font-mono text-xs bg-slate-100 rounded px-1.5 py-0.5">{item.skuId}</span></td>
-                            <td className="py-3 px-3 text-slate-900">{sk.name}</td>
-                            <td className="py-3 px-3 font-bold text-slate-900">{item.qty} units allocated</td>
-                          </tr>
-                        );
-                      });
+                    {sortedVanStock.map((item) => {
+                      return (
+                        <tr key={`${item.email}-${item.skuId}`} className="hover:bg-slate-50/50">
+                          <td className="py-3 px-3 whitespace-nowrap">
+                            <strong>{item.engineerName}</strong>
+                            <br />
+                            <span className="text-[10px] text-slate-400">{item.email}</span>
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className="font-mono text-xs bg-slate-100 rounded px-1.5 py-0.5">{item.skuId}</span>
+                          </td>
+                          <td className="py-3 px-3 text-slate-900">{item.itemName}</td>
+                          <td className="py-3 px-3 font-bold text-slate-900">{item.qty} units allocated</td>
+                        </tr>
+                      );
                     })}
-                    {invEngStockSelector && selectedTruckHoldings.length === 0 && (
+                    {sortedVanStock.length === 0 && (
                       <tr>
-                        <td colSpan={4} className="text-center py-6 text-slate-450">No stocking holds recorded inside this vehicle truck.</td>
+                        <td colSpan={4} className="text-center py-6 text-slate-450">
+                          No stocking holds recorded inside this vehicle truck.
+                        </td>
                       </tr>
                     )}
                   </tbody>
