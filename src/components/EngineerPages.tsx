@@ -1161,7 +1161,7 @@ function VanStockActionsForm({
 
               <button
                 type="submit"
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-600/10 outline-none transition duration-150 hover:bg-slate-900"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-red-600 py-3 text-sm font-bold text-white shadow-lg shadow-red-600/10 outline-none transition duration-150 hover:bg-slate-900"
               >
                 <RotateCcw className="h-4 w-4" /> Submit Return Request
               </button>
