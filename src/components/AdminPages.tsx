@@ -559,6 +559,7 @@ function AdminPagesInner({
   const [invVendorSelector, setInvVendorSelector] = useState('');
   const [invStatusSelector, setInvStatusSelector] = useState('');
   const [invEngStockSelector, setInvEngStockSelector] = useState('');
+  const [activeInventoryTab, setActiveInventoryTab] = useState<'warehouse' | 'shipments' | 'engineer'>('warehouse');
 
   const inventoryValueSum = inventory.reduce((s, i) => s + i.qty * i.unitPrice, 0);
 
@@ -1983,265 +1984,322 @@ function AdminPagesInner({
           <p className="text-sm font-medium text-slate-400">Oversee active supplier cargo sheets and track materials inside engineer trunks</p>
         </div>
 
-        {/* Board stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
-            <span className="text-xs font-bold tracking-wider text-slate-400 block mb-1">Total Capital</span>
-            <div className="flex items-center gap-2 text-indigo-750">
-              <span className="text-2xl font-extrabold">{fmtCur(inventoryValueSum)}</span>
-            </div>
-            <p className="text-xs text-slate-400 mt-1">Live approved asset valuation</p>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
-            <span className="text-xs font-bold tracking-wider text-slate-400 block mb-1">Low Stock Alerts</span>
-            <span className={`text-2xl font-extrabold block ${inventory.filter(i => i.qty <= getSku(skus, i.skuId).lowStockAlert).length > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-              {inventory.filter(i => i.qty <= getSku(skus, i.skuId).lowStockAlert).length} lines trigger
-            </span>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
-            <span className="text-xs font-bold tracking-wider text-slate-400 block mb-1">Registered SKUs</span>
-            <span className="text-2xl font-extrabold block text-slate-900">{skus.length} SKU cataloged</span>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
-            <span className="text-xs font-bold tracking-wider text-slate-400 block mb-1">Active Suppliers</span>
-            <span className="text-2xl font-extrabold block text-slate-900">{new Set(purchaseInward.map(p => p.vendor)).size} Vendor suppliers</span>
-          </div>
-        </div>
-
-        {/* Supplier shipments report with dynamic filters */}
-        <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm space-y-4">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <h2 className="font-display text-base font-bold text-slate-950">Purchase Inwards Receipts Audit</h2>
-              <p className="text-xs text-slate-400">Dynamically reconciles incoming deliveries recorded by store managers</p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={invVendorSelector}
-                onChange={(e) => setInvVendorSelector(e.target.value)}
-                className="rounded-xl border border-slate-205 bg-white p-2.5 text-xs font-semibold text-slate-650 outline-none"
-              >
-                <option value="">All Suppliers</option>
-                {[...new Set(purchaseInward.map(p => p.vendor).filter(Boolean))].sort().map((v) => (
-                  <option key={v} value={v}>{v}</option>
-                ))}
-              </select>
-
-              <select
-                value={invStatusSelector}
-                onChange={(e) => setInvStatusSelector(e.target.value)}
-                className="rounded-xl border border-slate-205 bg-white p-2.5 text-xs font-semibold text-slate-650 outline-none"
-              >
-                <option value="">All Statuses</option>
-                <option value="Pending">Pending Audit</option>
-                <option value="Approved">Approved / Credited</option>
-                <option value="Rejected">Rejected / Blocked</option>
-              </select>
-
-              <button
-                onClick={downloadWarehouseInwardsFilteredCSV}
-                className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 transition"
-              >
-                <Download className="h-4 w-4" /> Export receipts CSV
-              </button>
-            </div>
-          </div>
-
-          {(invVendorSelector || invStatusSelector) && (
-            <div className="rounded-xl border border-indigo-150 bg-indigo-50/40 p-3 flex flex-wrap gap-x-6 gap-y-1 text-xs font-bold text-indigo-950">
-              <span className="text-indigo-700">Suppliers Matched: {invVendorSelector || 'All Suppliers'}</span>
-              <span>Matched ticket count: {filteredWarehouseInwards.length}</span>
-              <span>Matched material Units: {matchedInwardQty} units</span>
-              <span>Audit cash points: {fmtCur(matchedInwardVal)}</span>
-            </div>
-          )}
-
-          <div className="overflow-x-auto text-sm font-medium">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-100">
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">ID</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">SKU</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Item Description</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Qty Received</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Invoiced Vendor Supplier</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Invoice Sum Value</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Audit Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
-                {filteredWarehouseInwards.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="text-center py-6 text-slate-400">No shipments match filtration criteria selected.</td>
-                  </tr>
-                ) : (
-                  filteredWarehouseInwards.map((p) => {
-                    const sk = getSku(skus, p.skuId);
-                    return (
-                      <tr key={p.id} className="hover:bg-slate-50/50">
-                        <td className="py-3 px-3 text-xs text-slate-400">{p.id}</td>
-                        <td className="py-3 px-3"><span className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700 font-bold">{p.skuId}</span></td>
-                        <td className="py-3 px-3"><strong>{sk.name}</strong></td>
-                        <td className="py-3 px-3 font-semibold text-slate-805">+{p.qty} units</td>
-                        <td className="py-3 px-3 font-semibold text-slate-550">{p.vendor}</td>
-                        <td className="py-3 px-3 font-bold text-slate-905">{fmtCur(p.qty * p.unitPrice)}</td>
-                        <td className="py-3 px-3">
-                          <span
-                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold border ${
-                              p.status === 'Approved'
-                                ? 'bg-emerald-50 border-emerald-110 text-emerald-800'
-                                : p.status === 'Rejected'
-                                ? 'bg-rose-50 border-rose-110 text-rose-800'
-                                : 'bg-amber-50 border-amber-110 text-amber-800'
-                            }`}
-                          >
-                            {p.status}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+        {/* Premium Segmented Tab Switcher (iOS/Material style) */}
+        <div className="flex justify-center sm:justify-start">
+          <div className="relative flex p-1 bg-slate-100 rounded-xl w-full sm:w-auto gap-1">
+            <button
+              id="tab-warehouse-stocks"
+              onClick={() => setActiveInventoryTab('warehouse')}
+              className={`relative z-10 flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition duration-200 w-full sm:w-auto ${
+                activeInventoryTab === 'warehouse'
+                  ? 'text-slate-900 bg-white shadow-xs font-semibold'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <Layers className="h-4 w-4" />
+              <span>Warehouse Stocks</span>
+            </button>
+            <button
+              id="tab-purchase-shipments"
+              onClick={() => setActiveInventoryTab('shipments')}
+              className={`relative z-10 flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition duration-200 w-full sm:w-auto ${
+                activeInventoryTab === 'shipments'
+                  ? 'text-slate-900 bg-white shadow-xs font-semibold'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <Truck className="h-4 w-4" />
+              <span>Purchase Shipments</span>
+            </button>
+            <button
+              id="tab-van-recalls"
+              onClick={() => setActiveInventoryTab('engineer')}
+              className={`relative z-10 flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition duration-200 w-full sm:w-auto ${
+                activeInventoryTab === 'engineer'
+                  ? 'text-slate-900 bg-white shadow-xs font-semibold'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <RotateCcw className="h-4 w-4" />
+              <span>Engineer wise stock report</span>
+            </button>
           </div>
         </div>
 
-        {/* Engineer-wise stocking audit */}
-        <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm space-y-4 animate-fade-in">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <h2 className="font-display text-base font-bold text-slate-900">Engineer Van Stock Audit Reports</h2>
-              <p className="text-xs text-slate-400">Inspect allocations presently sitting inside service trucks trunks</p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={invEngStockSelector}
-                onChange={(e) => setInvEngStockSelector(e.target.value)}
-                className="rounded-xl border border-slate-205 bg-white p-2.5 text-xs font-semibold text-slate-650 outline-none focus:border-indigo-600"
-              >
-                <option value="">All Roster Engineers ({activeStaffEngs.length})</option>
-                {activeStaffEngs.map((e) => (
-                  <option key={e.email} value={e.email}>{e.name}</option>
-                ))}
-              </select>
-
-              <button
-                onClick={downloadVanStockDetailedCSV}
-                className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-650 hover:bg-slate-50 transition"
-              >
-                <Download className="h-4 w-4" /> Download Van balance CSV
-              </button>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto text-sm font-medium">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-100">
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Engineer Profile</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">SKU Code</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Item Description</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Stock Available</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
-                {Object.entries(engineerStock).flatMap(([email, items]) => {
-                  if (invEngStockSelector && email !== invEngStockSelector) return [];
-                  const userRecord = getUser(users, email);
-
-                  return items.map((item, idx) => {
-                    const sk = getSku(skus, item.skuId);
-                    return (
-                      <tr key={`${email}-${item.skuId}`} className="hover:bg-slate-50/50">
-                        <td className="py-3 px-3 whitespace-nowrap"><strong>{userRecord.name}</strong><br /><span className="text-[10px] text-slate-400">{email}</span></td>
-                        <td className="py-3 px-3"><span className="font-mono text-xs bg-slate-100 rounded px-1.5 py-0.5">{item.skuId}</span></td>
-                        <td className="py-3 px-3 text-slate-900">{sk.name}</td>
-                        <td className="py-3 px-3 font-bold text-slate-900">{item.qty} units allocated</td>
-                      </tr>
-                    );
-                  });
-                })}
-                {invEngStockSelector && selectedTruckHoldings.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="text-center py-6 text-slate-450">No stocking holds recorded inside this vehicle truck.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Current Stock Available Report */}
-        <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm space-y-4 animate-fade-in">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <h2 className="font-display text-base font-bold text-slate-900">Current Stock Available Report</h2>
-              <p className="text-xs text-slate-400">Warehouse stock availability, valuations, and cost bounds</p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative">
-                <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-450" />
-                <input
-                  type="text"
-                  placeholder="Search SKU ID or Item..."
-                  value={invSearchQuery}
-                  onChange={(e) => setInvSearchQuery(e.target.value)}
-                  className="rounded-xl border border-slate-200 bg-white pl-8 pr-3.5 py-1.5 text-xs font-semibold text-slate-655 outline-none focus:border-indigo-650 w-64"
-                />
+        {/* Tab 1: Warehouse Stocks */}
+        {activeInventoryTab === 'warehouse' && (
+          <div className="space-y-6 animate-fade-in">
+            {/* Board stats */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
+                <span className="text-xs font-bold tracking-wider text-slate-400 block mb-1">Total Capital</span>
+                <div className="flex items-center gap-2 text-indigo-750">
+                  <span className="text-2xl font-extrabold">{fmtCur(inventoryValueSum)}</span>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">Live approved asset valuation</p>
               </div>
 
-              <button
-                onClick={downloadAvailableStockCSV}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-slate-900 shadow-sm transition"
-              >
-                <Download className="h-4 w-4" /> Download CSV
-              </button>
+              <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
+                <span className="text-xs font-bold tracking-wider text-slate-400 block mb-1">Low Stock Alerts</span>
+                <span className={`text-2xl font-extrabold block ${inventory.filter(i => i.qty <= getSku(skus, i.skuId).lowStockAlert).length > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                  {inventory.filter(i => i.qty <= getSku(skus, i.skuId).lowStockAlert).length} lines trigger
+                </span>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
+                <span className="text-xs font-bold tracking-wider text-slate-400 block mb-1">Registered SKUs</span>
+                <span className="text-2xl font-extrabold block text-slate-900">{skus.length} SKU cataloged</span>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
+                <span className="text-xs font-bold tracking-wider text-slate-400 block mb-1">Active Suppliers</span>
+                <span className="text-2xl font-extrabold block text-slate-900">{new Set(purchaseInward.map(p => p.vendor)).size} Vendor suppliers</span>
+              </div>
+            </div>
+
+            {/* Current Stock Available Report */}
+            <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm space-y-4">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                  <h2 className="font-display text-base font-bold text-slate-900">Current Stock Available Report</h2>
+                  <p className="text-xs text-slate-400">Warehouse stock availability, valuations, and cost bounds</p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-455" />
+                    <input
+                      type="text"
+                      placeholder="Search SKU ID or Item..."
+                      value={invSearchQuery}
+                      onChange={(e) => setInvSearchQuery(e.target.value)}
+                      className="rounded-xl border border-slate-200 bg-white pl-8 pr-3.5 py-1.5 text-xs font-semibold text-slate-655 outline-none focus:border-indigo-655 w-64"
+                    />
+                  </div>
+
+                  <button
+                    onClick={downloadAvailableStockCSV}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-slate-900 shadow-sm transition"
+                  >
+                    <Download className="h-4 w-4" /> Download CSV
+                  </button>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto text-sm font-medium">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-100">
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">SKU ID</th>
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Item Description</th>
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Available Qty</th>
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Unit Price</th>
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Total Value</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-705">
+                    {inventory.filter((item) => {
+                      if (invSearchQuery.trim()) {
+                        const q = invSearchQuery.toLowerCase();
+                        const sk = getSku(skus, item.skuId);
+                        return item.skuId.toLowerCase().includes(q) || sk.name.toLowerCase().includes(q);
+                      }
+                      return true;
+                    }).map((item) => {
+                      const sk = getSku(skus, item.skuId);
+                      const totalVal = item.qty * item.unitPrice;
+                      return (
+                        <tr key={item.skuId} className="hover:bg-slate-50/50">
+                          <td className="py-3 px-3"><span className="font-mono text-xs bg-slate-100 rounded px-1.5 py-0.5">{item.skuId}</span></td>
+                          <td className="py-3 px-3 text-slate-900"><strong>{sk.name}</strong></td>
+                          <td className="py-3 px-3 font-semibold text-slate-800">{item.qty} units</td>
+                          <td className="py-3 px-3 text-slate-600">{fmtCur(item.unitPrice)}</td>
+                          <td className="py-3 px-3 font-bold text-indigo-600">{fmtCur(totalVal)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
+        )}
 
-          <div className="overflow-x-auto text-sm font-medium">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-100">
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">SKU ID</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Item Description</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Available Qty</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Unit Price</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Total Value</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-705">
-                {inventory.filter((item) => {
-                  if (invSearchQuery.trim()) {
-                    const q = invSearchQuery.toLowerCase();
-                    const sk = getSku(skus, item.skuId);
-                    return item.skuId.toLowerCase().includes(q) || sk.name.toLowerCase().includes(q);
-                  }
-                  return true;
-                }).map((item) => {
-                  const sk = getSku(skus, item.skuId);
-                  const totalVal = item.qty * item.unitPrice;
-                  return (
-                    <tr key={item.skuId} className="hover:bg-slate-50/50">
-                      <td className="py-3 px-3"><span className="font-mono text-xs bg-slate-100 rounded px-1.5 py-0.5">{item.skuId}</span></td>
-                      <td className="py-3 px-3 text-slate-900"><strong>{sk.name}</strong></td>
-                      <td className="py-3 px-3 font-semibold text-slate-800">{item.qty} units</td>
-                      <td className="py-3 px-3 text-slate-600">{fmtCur(item.unitPrice)}</td>
-                      <td className="py-3 px-3 font-bold text-indigo-600">{fmtCur(totalVal)}</td>
+        {/* Tab 2: Purchase Shipments */}
+        {activeInventoryTab === 'shipments' && (
+          <div className="space-y-6 animate-fade-in">
+            {/* Supplier shipments report with dynamic filters */}
+            <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm space-y-4">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                  <h2 className="font-display text-base font-bold text-slate-955">Purchase Inwards Receipts Audit</h2>
+                  <p className="text-xs text-slate-400">Dynamically reconciles incoming deliveries recorded by store managers</p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={invVendorSelector}
+                    onChange={(e) => setInvVendorSelector(e.target.value)}
+                    className="rounded-xl border border-slate-205 bg-white p-2.5 text-xs font-semibold text-slate-655 outline-none"
+                  >
+                    <option value="">All Suppliers</option>
+                    {[...new Set(purchaseInward.map(p => p.vendor).filter(Boolean))].sort().map((v) => (
+                      <option key={v} value={v}>{v}</option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={invStatusSelector}
+                    onChange={(e) => setInvStatusSelector(e.target.value)}
+                    className="rounded-xl border border-slate-205 bg-white p-2.5 text-xs font-semibold text-slate-655 outline-none"
+                  >
+                    <option value="">All Statuses</option>
+                    <option value="Pending">Pending Audit</option>
+                    <option value="Approved">Approved / Credited</option>
+                    <option value="Rejected">Rejected / Blocked</option>
+                  </select>
+
+                  <button
+                    onClick={downloadWarehouseInwardsFilteredCSV}
+                    className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 transition"
+                  >
+                    <Download className="h-4 w-4" /> Export receipts CSV
+                  </button>
+                </div>
+              </div>
+
+              {(invVendorSelector || invStatusSelector) && (
+                <div className="rounded-xl border border-indigo-150 bg-indigo-50/40 p-3 flex flex-wrap gap-x-6 gap-y-1 text-xs font-bold text-indigo-955">
+                  <span className="text-indigo-700">Suppliers Matched: {invVendorSelector || 'All Suppliers'}</span>
+                  <span>Matched ticket count: {filteredWarehouseInwards.length}</span>
+                  <span>Matched material Units: {matchedInwardQty} units</span>
+                  <span>Audit cash points: {fmtCur(matchedInwardVal)}</span>
+                </div>
+              )}
+
+              <div className="overflow-x-auto text-sm font-medium">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-100">
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">ID</th>
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">SKU</th>
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Item Description</th>
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Qty Received</th>
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Invoiced Vendor Supplier</th>
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Invoice Sum Value</th>
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Audit Status</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {filteredWarehouseInwards.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="text-center py-6 text-slate-400">No shipments match filtration criteria selected.</td>
+                      </tr>
+                    ) : (
+                      filteredWarehouseInwards.map((p) => {
+                        const sk = getSku(skus, p.skuId);
+                        return (
+                          <tr key={p.id} className="hover:bg-slate-50/50">
+                            <td className="py-3 px-3 text-xs text-slate-400">{p.id}</td>
+                            <td className="py-3 px-3"><span className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700 font-bold">{p.skuId}</span></td>
+                            <td className="py-3 px-3"><strong>{sk.name}</strong></td>
+                            <td className="py-3 px-3 font-semibold text-slate-850">+{p.qty} units</td>
+                            <td className="py-3 px-3 font-semibold text-slate-550">{p.vendor}</td>
+                            <td className="py-3 px-3 font-bold text-slate-905">{fmtCur(p.qty * p.unitPrice)}</td>
+                            <td className="py-3 px-3">
+                              <span
+                                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold border ${
+                                  p.status === 'Approved'
+                                    ? 'bg-emerald-50 border-emerald-110 text-emerald-800'
+                                    : p.status === 'Rejected'
+                                    ? 'bg-rose-50 border-rose-110 text-rose-800'
+                                    : 'bg-amber-50 border-amber-110 text-amber-855'
+                                }`}
+                              >
+                                {p.status}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Tab 3: Engineer wise stock report */}
+        {activeInventoryTab === 'engineer' && (
+          <div className="space-y-6 animate-fade-in">
+            {/* Engineer-wise stocking audit */}
+            <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm space-y-4">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                  <h2 className="font-display text-base font-bold text-slate-900">Engineer Van Stock Audit Reports</h2>
+                  <p className="text-xs text-slate-400">Inspect allocations presently sitting inside service trucks trunks</p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={invEngStockSelector}
+                    onChange={(e) => setInvEngStockSelector(e.target.value)}
+                    className="rounded-xl border border-slate-205 bg-white p-2.5 text-xs font-semibold text-slate-655 outline-none focus:border-indigo-600"
+                  >
+                    <option value="">All Roster Engineers ({activeStaffEngs.length})</option>
+                    {activeStaffEngs.map((e) => (
+                      <option key={e.email} value={e.email}>{e.name}</option>
+                    ))}
+                  </select>
+
+                  <button
+                    onClick={downloadVanStockDetailedCSV}
+                    className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-655 hover:bg-slate-50 transition"
+                  >
+                    <Download className="h-4 w-4" /> Download Van balance CSV
+                  </button>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto text-sm font-medium">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-100">
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Engineer Profile</th>
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">SKU Code</th>
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Item Description</th>
+                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Stock Available</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {Object.entries(engineerStock).flatMap(([email, items]) => {
+                      if (invEngStockSelector && email !== invEngStockSelector) return [];
+                      const userRecord = getUser(users, email);
+
+                      return items.map((item, idx) => {
+                        const sk = getSku(skus, item.skuId);
+                        return (
+                          <tr key={`${email}-${item.skuId}`} className="hover:bg-slate-50/50">
+                            <td className="py-3 px-3 whitespace-nowrap"><strong>{userRecord.name}</strong><br /><span className="text-[10px] text-slate-400">{email}</span></td>
+                            <td className="py-3 px-3"><span className="font-mono text-xs bg-slate-100 rounded px-1.5 py-0.5">{item.skuId}</span></td>
+                            <td className="py-3 px-3 text-slate-900">{sk.name}</td>
+                            <td className="py-3 px-3 font-bold text-slate-900">{item.qty} units allocated</td>
+                          </tr>
+                        );
+                      });
+                    })}
+                    {invEngStockSelector && selectedTruckHoldings.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="text-center py-6 text-slate-450">No stocking holds recorded inside this vehicle truck.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
