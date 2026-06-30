@@ -132,6 +132,17 @@ service cloud.firestore {
         && data.status is string && data.status in ['Pending', 'Claim pending', 'Claim submitted', 'Claim forwarded', 'Claim approved', 'Rejected'];
     }
 
+    function isValidReturnRequest(data) {
+      return data.keys().hasAll(['id', 'engEmail', 'skuId', 'qty', 'date', 'status'])
+        && data.id is string && data.id.size() <= 64
+        && data.engEmail is string && data.engEmail.size() <= 128
+        && data.skuId is string && data.skuId.size() <= 64
+        && data.qty is int && data.qty > 0
+        && data.date is string && data.date.size() <= 32
+        && data.status is string && data.status in ['Pending', 'Approved', 'Rejected']
+        && (!('orgId' in data) || data.orgId is string);
+    }
+
     // Rules matching individual collections
     match /organisations/{orgId} {
       allow read: if true;
@@ -202,6 +213,12 @@ service cloud.firestore {
     match /attendanceRequests/{reqId} {
       allow read: if true;
       allow create, update: if isValidId(reqId) && isValidAttendanceRequest(incoming());
+      allow delete: if true;
+    }
+
+    match /returnRequests/{reqId} {
+      allow read: if true;
+      allow create, update: if isValidId(reqId) && isValidReturnRequest(incoming());
       allow delete: if true;
     }
   }
