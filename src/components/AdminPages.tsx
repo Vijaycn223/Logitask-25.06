@@ -2283,14 +2283,14 @@ function AdminPagesInner({
 
         {/* Premium Segmented Tab Switcher (iOS/Material style) */}
         <div className="flex justify-center sm:justify-start">
-          <div className="relative flex p-1 bg-blue-50 rounded-xl w-full sm:w-auto gap-1">
+          <div className="flex flex-wrap gap-1 bg-white rounded-lg p-1 border border-slate-100 shadow-sm w-full sm:w-auto">
             <button
               id="tab-warehouse-stocks"
               onClick={() => setActiveInventoryTab('warehouse')}
-              className={`relative z-10 flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition duration-200 w-full sm:w-auto ${
+              className={`flex items-center justify-center gap-2 px-4 py-2 text-xs font-extrabold uppercase rounded-md tracking-wider transition-all duration-200 w-full sm:w-auto ${
                 activeInventoryTab === 'warehouse'
-                  ? 'text-slate-900 bg-white shadow-xs font-semibold'
-                  : 'text-blue-600 hover:text-blue-800'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-600'
               }`}
             >
               <Layers className="h-4 w-4" />
@@ -2299,10 +2299,10 @@ function AdminPagesInner({
             <button
               id="tab-purchase-shipments"
               onClick={() => setActiveInventoryTab('shipments')}
-              className={`relative z-10 flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition duration-200 w-full sm:w-auto ${
+              className={`flex items-center justify-center gap-2 px-4 py-2 text-xs font-extrabold uppercase rounded-md tracking-wider transition-all duration-200 w-full sm:w-auto ${
                 activeInventoryTab === 'shipments'
-                  ? 'text-slate-900 bg-white shadow-xs font-semibold'
-                  : 'text-blue-600 hover:text-blue-800'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-600'
               }`}
             >
               <Truck className="h-4 w-4" />
@@ -2311,10 +2311,10 @@ function AdminPagesInner({
             <button
               id="tab-van-recalls"
               onClick={() => setActiveInventoryTab('engineer')}
-              className={`relative z-10 flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition duration-200 w-full sm:w-auto ${
+              className={`flex items-center justify-center gap-2 px-4 py-2 text-xs font-extrabold uppercase rounded-md tracking-wider transition-all duration-200 w-full sm:w-auto ${
                 activeInventoryTab === 'engineer'
-                  ? 'text-slate-900 bg-white shadow-xs font-semibold'
-                  : 'text-blue-600 hover:text-blue-800'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-600'
               }`}
             >
               <RotateCcw className="h-4 w-4" />
