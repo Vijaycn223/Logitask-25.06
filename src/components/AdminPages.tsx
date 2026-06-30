@@ -1986,14 +1986,14 @@ function AdminPagesInner({
 
         {/* Premium Segmented Tab Switcher (iOS/Material style) */}
         <div className="flex justify-center sm:justify-start">
-          <div className="relative flex p-1 bg-slate-100 rounded-xl w-full sm:w-auto gap-1">
+          <div className="relative flex p-1 bg-blue-50 rounded-xl w-full sm:w-auto gap-1">
             <button
               id="tab-warehouse-stocks"
               onClick={() => setActiveInventoryTab('warehouse')}
               className={`relative z-10 flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition duration-200 w-full sm:w-auto ${
                 activeInventoryTab === 'warehouse'
                   ? 'text-slate-900 bg-white shadow-xs font-semibold'
-                  : 'text-slate-500 hover:text-slate-700'
+                  : 'text-blue-600 hover:text-blue-800'
               }`}
             >
               <Layers className="h-4 w-4" />
@@ -2005,7 +2005,7 @@ function AdminPagesInner({
               className={`relative z-10 flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition duration-200 w-full sm:w-auto ${
                 activeInventoryTab === 'shipments'
                   ? 'text-slate-900 bg-white shadow-xs font-semibold'
-                  : 'text-slate-500 hover:text-slate-700'
+                  : 'text-blue-600 hover:text-blue-800'
               }`}
             >
               <Truck className="h-4 w-4" />
@@ -2017,7 +2017,7 @@ function AdminPagesInner({
               className={`relative z-10 flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition duration-200 w-full sm:w-auto ${
                 activeInventoryTab === 'engineer'
                   ? 'text-slate-900 bg-white shadow-xs font-semibold'
-                  : 'text-slate-500 hover:text-slate-700'
+                  : 'text-blue-600 hover:text-blue-800'
               }`}
             >
               <RotateCcw className="h-4 w-4" />
