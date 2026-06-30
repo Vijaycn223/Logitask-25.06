@@ -697,6 +697,13 @@ function AdminPagesInner({
 
   const inventoryValueSum = inventory.reduce((s, i) => s + i.qty * i.unitPrice, 0);
 
+  const totalEngStockValue = Object.entries(engineerStock).reduce((sum, [email, items]) => {
+    return sum + items.reduce((subSum, item) => {
+      const invItem = getInvItem(inventory, item.skuId);
+      return subSum + item.qty * invItem.unitPrice;
+    }, 0);
+  }, 0);
+
   const getFilteredWarehouseInwards = () => {
     const filtered = purchaseInward.filter((p) => {
       const matchV = !invVendorSelector || p.vendor === invVendorSelector;
@@ -2344,13 +2351,21 @@ function AdminPagesInner({
         {activeInventoryTab === 'warehouse' && (
           <div className="space-y-6 animate-fade-in">
             {/* Board stats */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
-                <span className="text-xs font-bold tracking-wider text-slate-400 block mb-1">Total Capital</span>
+                <span className="text-xs font-bold tracking-wider text-slate-400 block mb-1">Warehouse Stock Value</span>
                 <div className="flex items-center gap-2 text-indigo-750">
                   <span className="text-2xl font-extrabold">{fmtCur(inventoryValueSum)}</span>
                 </div>
-                <p className="text-xs text-slate-400 mt-1">Live approved asset valuation</p>
+                <p className="text-xs text-slate-400 mt-1">Live approved warehouse asset valuation</p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
+                <span className="text-xs font-bold tracking-wider text-slate-400 block mb-1">Engineer Stock Value</span>
+                <div className="flex items-center gap-2 text-indigo-750">
+                  <span className="text-2xl font-extrabold">{fmtCur(totalEngStockValue)}</span>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">Valuation value of materials allocated inside service vehicles</p>
               </div>
 
               <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
@@ -2358,16 +2373,7 @@ function AdminPagesInner({
                 <span className={`text-2xl font-extrabold block ${inventory.filter(i => i.qty <= getSku(skus, i.skuId).lowStockAlert).length > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
                   {inventory.filter(i => i.qty <= getSku(skus, i.skuId).lowStockAlert).length} lines trigger
                 </span>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
-                <span className="text-xs font-bold tracking-wider text-slate-400 block mb-1">Registered SKUs</span>
-                <span className="text-2xl font-extrabold block text-slate-900">{skus.length} SKU cataloged</span>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
-                <span className="text-xs font-bold tracking-wider text-slate-400 block mb-1">Active Suppliers</span>
-                <span className="text-2xl font-extrabold block text-slate-900">{new Set(purchaseInward.map(p => p.vendor)).size} Vendor suppliers</span>
+                <p className="text-xs text-slate-400 mt-1">SKU lines below safety bounds</p>
               </div>
             </div>
 
