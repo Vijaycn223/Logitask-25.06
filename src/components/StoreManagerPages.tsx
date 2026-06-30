@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { User, SKU, InventoryItem, StockRequest, PurchaseInward, LPRequest, ProductivityLog, AttendanceRequest, AttendanceRecord, ReturnRequest } from '../types';
+import { User, SKU, InventoryItem, StockRequest, PurchaseInward, LPRequest, ProductivityLog, AttendanceRequest, AttendanceRecord, ReturnRequest, EngineerStock } from '../types';
 import { getSku, getInvItem, getUser, fmtDate, fmtCur, genId, getMonthRange } from '../utils';
 import {
   Boxes,
@@ -30,7 +30,8 @@ import {
   ListRestart,
   Search,
   Tag,
-  RotateCcw
+  RotateCcw,
+  Layers
 } from 'lucide-react';
 
 
@@ -39,6 +40,7 @@ interface StoreManagerPagesProps {
   users: User[];
   skus: SKU[];
   inventory: InventoryItem[];
+  engineerStock: EngineerStock;
   stockRequests: StockRequest[];
   purchaseInward: PurchaseInward[];
   activeTab: string;
@@ -66,6 +68,7 @@ export function StoreManagerPages({
   users,
   skus,
   inventory,
+  engineerStock = {},
   stockRequests,
   purchaseInward,
   activeTab,
@@ -92,6 +95,30 @@ export function StoreManagerPages({
   const [smNotes, setSmNotes] = useState<Record<string, string>>({});
   const [processingStockRequestIds, setProcessingStockRequestIds] = useState<string[]>([]);
   const [processingProductivityIds, setProcessingProductivityIds] = useState<string[]>([]);
+
+  // Inventory tab subplots and sorting states
+  const [activeInventoryTab, setActiveInventoryTab] = useState<'warehouse' | 'engineer'>('warehouse');
+  const [invEngStockSelector, setInvEngStockSelector] = useState('');
+  const [invSkuStockSelector, setInvSkuStockSelector] = useState('');
+  
+  const [vanStockSortKey, setVanStockSortKey] = useState<'name' | 'sku' | 'description' | 'qty' | 'value'>('name');
+  const [vanStockSortAsc, setVanStockSortAsc] = useState<boolean>(true);
+
+  const toggleVanStockSort = (key: 'name' | 'sku' | 'description' | 'qty' | 'value') => {
+    if (vanStockSortKey === key) {
+      setVanStockSortAsc(!vanStockSortAsc);
+    } else {
+      setVanStockSortKey(key);
+      setVanStockSortAsc(true);
+    }
+  };
+
+  const renderSortIndicator = (currentKey: string, activeKey: string, ascending: boolean) => {
+    if (activeKey === currentKey) {
+      return ascending ? ' ▲' : ' ▼';
+    }
+    return '';
+  };
 
   // SKU Registry State
   const [skuIdInput, setSkuIdInput] = useState('');
@@ -1414,108 +1441,320 @@ export function StoreManagerPages({
 
   // Main Warehouse Report Visualizations
   if (activeTab === 'store-inventory') {
+    const activeStaffEngs = users.filter((x) => x.role === 'Engineer' && x.orgId === currentUser.orgId);
+
+    // Compute dynamic months or van stock items
+    const flattenedVanStock = Object.entries(engineerStock).flatMap(([email, items]) => {
+      const userRecord = getUser(users, email);
+      if (userRecord.orgId !== currentUser.orgId) return [];
+
+      return items.map((item) => {
+        const sk = getSku(skus, item.skuId);
+        const invItem = getInvItem(inventory, item.skuId);
+        const value = item.qty * invItem.unitPrice;
+        return {
+          email,
+          engineerName: userRecord.name,
+          skuId: item.skuId,
+          itemName: sk.name,
+          qty: item.qty,
+          value
+        };
+      });
+    });
+
+    const filteredVanStock = flattenedVanStock.filter((item) => {
+      const matchEng = !invEngStockSelector || item.email === invEngStockSelector;
+      const matchSku = !invSkuStockSelector || item.skuId === invSkuStockSelector;
+      return matchEng && matchSku;
+    });
+
+    const sortedVanStock = [...filteredVanStock].sort((a, b) => {
+      let comparison = 0;
+      if (vanStockSortKey === 'name') {
+        comparison = a.engineerName.localeCompare(b.engineerName) || a.email.localeCompare(b.email);
+      } else if (vanStockSortKey === 'sku') {
+        comparison = a.skuId.localeCompare(b.skuId);
+      } else if (vanStockSortKey === 'description') {
+        comparison = a.itemName.localeCompare(b.itemName);
+      } else if (vanStockSortKey === 'qty') {
+        comparison = a.qty - b.qty;
+      } else if (vanStockSortKey === 'value') {
+        comparison = a.value - b.value;
+      }
+      return vanStockSortAsc ? comparison : -comparison;
+    });
+
+    const downloadVanStockDetailedCSV = () => {
+      const header = ['Engineer Name', 'Engineer Email', 'SKU ID', 'SKU Description', 'Available Qty', 'Value (INR)'];
+      const rows = filteredVanStock.map((item) => [
+        item.engineerName,
+        item.email,
+        item.skuId,
+        item.itemName,
+        item.qty,
+        item.value
+      ]);
+
+      const csvContent = 'data:text/csv;charset=utf-8,' + [header.join(','), ...rows.map((e) => e.map((val) => `"${val}"`).join(','))].join('\n');
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement('a');
+      link.setAttribute('href', encodedUri);
+      link.setAttribute('download', `engineer_wise_stock_report.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      onAddToast('Engineer wise stock report downloaded!');
+    };
+
     return (
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="font-display text-2xl font-extrabold text-slate-950">Store Inventory Report</h1>
-            <p className="text-sm font-medium text-slate-400 font-sans">Corporate warehouse stock levels and low-alert trigger reports</p>
+            <h1 className="font-display text-2xl font-extrabold text-slate-955 font-sans">Store Inventory Report</h1>
+            <p className="text-sm font-medium text-slate-400">Oversee warehouse shelf levels and track materials inside engineer vehicles</p>
           </div>
-          <button
-            onClick={downloadStoreInventoryCSV}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-700 transition"
-          >
-            <FileSpreadsheet className="h-4.5 w-4.5 text-slate-500" /> Export full levels to CSV
-          </button>
+          {activeInventoryTab === 'warehouse' ? (
+            <button
+              onClick={downloadStoreInventoryCSV}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-700 transition cursor-pointer"
+            >
+              <FileSpreadsheet className="h-4.5 w-4.5 text-slate-500" /> Export full levels to CSV
+            </button>
+          ) : (
+            <button
+              onClick={downloadVanStockDetailedCSV}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-700 transition cursor-pointer"
+            >
+              <FileSpreadsheet className="h-4.5 w-4.5 text-slate-500" /> Export van stocks to CSV
+            </button>
+          )}
         </div>
 
-        {/* Highlight Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1">Total SKU Lines</span>
-            <div className="flex items-center gap-2">
-              <Boxes className="h-5 w-5 text-indigo-500 shrink-0" />
-              <span className="text-2xl font-extrabold text-slate-950">{inventory.length} registered</span>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1">Total Stocks counts</span>
-            <div className="flex items-center gap-2 text-indigo-650">
-              <span className="text-2xl font-extrabold">{inventory.reduce((sum, item) => sum + item.qty, 0)} units</span>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1">Alert SKU Lines</span>
-            <span className={`text-2xl font-extrabold block ${lowStockItems.length > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-              {lowStockItems.length} lines below bounds
-            </span>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1">Total Warehouse Value</span>
-            <span className="text-2xl font-extrabold block text-slate-900">{fmtCur(totalInventoryValue)}</span>
+        {/* Premium Segmented Tab Switcher (iOS/Material style matching Admin tab track color) */}
+        <div className="flex justify-center sm:justify-start">
+          <div className="relative flex p-1 bg-blue-50 rounded-xl w-full sm:w-auto gap-1">
+            <button
+              id="tab-warehouse-stocks"
+              onClick={() => setActiveInventoryTab('warehouse')}
+              className={`relative z-10 flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition duration-200 w-full sm:w-auto cursor-pointer ${
+                activeInventoryTab === 'warehouse'
+                  ? 'text-slate-900 bg-white shadow-xs font-semibold'
+                  : 'text-blue-600 hover:text-blue-800'
+              }`}
+            >
+              <Layers className="h-4 w-4" />
+              <span>Warehouse Stocks</span>
+            </button>
+            <button
+              id="tab-van-recalls"
+              onClick={() => setActiveInventoryTab('engineer')}
+              className={`relative z-10 flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition duration-200 w-full sm:w-auto cursor-pointer ${
+                activeInventoryTab === 'engineer'
+                  ? 'text-slate-900 bg-white shadow-xs font-semibold'
+                  : 'text-blue-600 hover:text-blue-800'
+              }`}
+            >
+              <RotateCcw className="h-4 w-4" />
+              <span>Engineer wise stock report</span>
+            </button>
           </div>
         </div>
 
-        {/* Detailed Warehouse Levels Visual Table */}
-        <div className="rounded-2xl border border-slate-200/50 bg-white p-6 shadow-sm">
-          <h2 className="font-display text-sm font-bold text-slate-950 mb-4">Detailed Stock Meter levels</h2>
-          <div className="overflow-x-auto text-sm font-medium">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-100">
-                  <th className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400">SKU Code</th>
-                  <th className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400">Product Title</th>
-                  <th className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400">Warehouse Stock</th>
-                  <th className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400">Min Stock Limit</th>
-                  <th className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400">Unit Cost</th>
-                  <th className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400" style={{ textAlign: 'right' }}>Capital Valuation (₹)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {inventory.map((i) => {
-                  const sk = getSku(skus, i.skuId);
-                  const isLow = i.qty <= sk.lowStockAlert;
-                  const value = i.qty * i.unitPrice;
-                  // progress bar estimation compared to max target of 400 units
-                  const progressPct = Math.min(100, (i.qty / 400) * 100);
+        {activeInventoryTab === 'warehouse' ? (
+          <div className="space-y-6 animate-fade-in">
+            {/* Highlight Stats */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1">Total SKU Lines</span>
+                <div className="flex items-center gap-2">
+                  <Boxes className="h-5 w-5 text-indigo-500 shrink-0" />
+                  <span className="text-2xl font-extrabold text-slate-955">{inventory.length} registered</span>
+                </div>
+              </div>
 
-                  return (
-                    <tr key={i.skuId} className="hover:bg-slate-50/50">
-                      <td className="py-4.5 px-4">
-                        <span className="font-mono text-xs font-bold text-indigo-750 bg-indigo-50 border border-indigo-150 rounded px-2 py-0.5">
-                          {i.skuId}
-                        </span>
-                      </td>
-                      <td className="py-4.5 px-4">
-                        <div>
-                          <span className="block text-slate-905 font-bold">{sk.name}</span>
-                          <span className="block text-[10px] text-slate-400 font-semibold uppercase">{isLow ? 'Alert out-of-bounds' : 'Safety counts secure'}</span>
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <div>
-                          <strong className={isLow ? 'text-rose-600' : 'text-slate-900'}>{i.qty} units</strong>
-                          <div className="h-1.5 w-24 bg-slate-150 rounded-full overflow-hidden mt-1 bg-slate-100">
-                            <div
-                              className={`h-full rounded-full ${isLow ? 'bg-rose-500' : 'bg-emerald-500'}`}
-                              style={{ width: `${progressPct}%` }}
-                            ></div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-4 text-slate-600">{sk.lowStockAlert} Alert qty</td>
-                      <td className="py-3.5 px-4 text-slate-500">{fmtCur(i.unitPrice)}</td>
-                      <td className="py-3.5 px-4 text-right font-bold text-slate-900">{fmtCur(value)}</td>
+              <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1">Total Stocks counts</span>
+                <div className="flex items-center gap-2 text-indigo-650">
+                  <span className="text-2xl font-extrabold">{inventory.reduce((sum, item) => sum + item.qty, 0)} units</span>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1">Alert SKU Lines</span>
+                <span className={`text-2xl font-extrabold block ${lowStockItems.length > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                  {lowStockItems.length} lines below bounds
+                </span>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1">Total Warehouse Value</span>
+                <span className="text-2xl font-extrabold block text-slate-900">{fmtCur(totalInventoryValue)}</span>
+              </div>
+            </div>
+
+            {/* Detailed Warehouse Levels Visual Table */}
+            <div className="rounded-2xl border border-slate-200/50 bg-white p-6 shadow-sm">
+              <h2 className="font-display text-sm font-bold text-slate-950 mb-4">Detailed Stock Meter levels</h2>
+              <div className="overflow-x-auto text-sm font-medium">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-100">
+                      <th className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400">SKU Code</th>
+                      <th className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400">Product Title</th>
+                      <th className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400">Warehouse Stock</th>
+                      <th className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400">Min Stock Limit</th>
+                      <th className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400">Unit Cost</th>
+                      <th className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400" style={{ textAlign: 'right' }}>Capital Valuation (₹)</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {inventory.map((i) => {
+                      const sk = getSku(skus, i.skuId);
+                      const isLow = i.qty <= sk.lowStockAlert;
+                      const value = i.qty * i.unitPrice;
+                      const progressPct = Math.min(100, (i.qty / 400) * 100);
+
+                      return (
+                        <tr key={i.skuId} className="hover:bg-slate-50/50">
+                          <td className="py-4.5 px-4">
+                            <span className="font-mono text-xs font-bold text-indigo-755 bg-indigo-50 border border-indigo-150 rounded px-2 py-0.5">
+                              {i.skuId}
+                            </span>
+                          </td>
+                          <td className="py-4.5 px-4">
+                            <div>
+                              <span className="block text-slate-905 font-bold">{sk.name}</span>
+                              <span className="block text-[10px] text-slate-400 font-semibold uppercase">{isLow ? 'Alert out-of-bounds' : 'Safety counts secure'}</span>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div>
+                              <strong className={isLow ? 'text-rose-600' : 'text-slate-900'}>{i.qty} units</strong>
+                              <div className="h-1.5 w-24 bg-slate-150 rounded-full overflow-hidden mt-1 bg-slate-100">
+                                <div
+                                  className={`h-full rounded-full ${isLow ? 'bg-rose-500' : 'bg-emerald-500'}`}
+                                  style={{ width: `${progressPct}%` }}
+                                ></div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 text-slate-600">{sk.lowStockAlert} Alert qty</td>
+                          <td className="py-3.5 px-4 text-slate-500">{fmtCur(i.unitPrice)}</td>
+                          <td className="py-3.5 px-4 text-right font-bold text-slate-900">{fmtCur(value)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="space-y-6 animate-fade-in">
+            {/* Engineer-wise stocking report */}
+            <div className="rounded-2xl border border-slate-200/50 bg-white p-6 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <h2 className="font-display text-base font-bold text-slate-900">Engineer Van Stock Audit Reports</h2>
+                  <p className="text-xs text-slate-400">Inspect allocations presently sitting inside engineer trunks</p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={invEngStockSelector}
+                    onChange={(e) => setInvEngStockSelector(e.target.value)}
+                    className="rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold text-slate-600 outline-none focus:border-indigo-650"
+                  >
+                    <option value="">All Engineers ({activeStaffEngs.length})</option>
+                    {activeStaffEngs.map((e) => (
+                      <option key={e.email} value={e.email}>{e.name}</option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={invSkuStockSelector}
+                    onChange={(e) => setInvSkuStockSelector(e.target.value)}
+                    className="rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold text-slate-600 outline-none focus:border-indigo-650"
+                  >
+                    <option value="">All SKUs ({skus.length})</option>
+                    {skus.map((s) => (
+                      <option key={s.id} value={s.id}>{s.id} – {s.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto text-sm font-medium">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-100 select-none">
+                      <th
+                        onClick={() => toggleVanStockSort('name')}
+                        className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Engineer Name{renderSortIndicator('name', vanStockSortKey, vanStockSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleVanStockSort('sku')}
+                        className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        SKU ID{renderSortIndicator('sku', vanStockSortKey, vanStockSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleVanStockSort('description')}
+                        className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        SKU Description{renderSortIndicator('description', vanStockSortKey, vanStockSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleVanStockSort('qty')}
+                        className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Available Qty{renderSortIndicator('qty', vanStockSortKey, vanStockSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleVanStockSort('value')}
+                        className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                        style={{ textAlign: 'right' }}
+                      >
+                        Value{renderSortIndicator('value', vanStockSortKey, vanStockSortAsc)}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {sortedVanStock.map((item) => {
+                      return (
+                        <tr key={`${item.email}-${item.skuId}`} className="hover:bg-slate-50/50">
+                          <td className="py-4.5 px-4 whitespace-nowrap">
+                            <strong>{item.engineerName}</strong>
+                            <br />
+                            <span className="text-[10px] text-slate-400 font-semibold">{item.email}</span>
+                          </td>
+                          <td className="py-4.5 px-4">
+                            <span className="font-mono text-xs font-bold text-indigo-755 bg-indigo-50 border border-indigo-150 rounded px-2 py-0.5">
+                              {item.skuId}
+                            </span>
+                          </td>
+                          <td className="py-4.5 px-4 text-slate-900">{item.itemName}</td>
+                          <td className="py-4.5 px-4 font-bold text-slate-900">{item.qty} units allocated</td>
+                          <td className="py-4.5 px-4 text-right font-bold text-slate-900">{fmtCur(item.value)}</td>
+                        </tr>
+                      );
+                    })}
+                    {sortedVanStock.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="text-center py-8 text-slate-400">
+                          No matching engineer stock records found.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

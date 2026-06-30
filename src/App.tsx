@@ -962,6 +962,7 @@ export default function App() {
                   users={filteredUsers}
                   skus={filteredSkus}
                   inventory={filteredInventory}
+                  engineerStock={filteredEngineerStock}
                   attendance={filteredAttendance}
                   stockRequests={filteredStockRequests}
                   purchaseInward={filteredPurchases}
