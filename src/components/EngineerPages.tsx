@@ -1436,7 +1436,7 @@ function LogProductivityTab({
                 </select>
               </div>
 
-              <div className="sm:col-span-3">
+              <div className="sm:col-span-2">
                 <label className="block text-[10px] font-bold text-slate-400 mb-1">
                   Qty Sold
                 </label>
@@ -1464,7 +1464,7 @@ function LogProductivityTab({
                 />
               </div>
 
-              <div className="sm:col-span-1">
+              <div className="sm:col-span-2">
                 <button
                   type="button"
                   onClick={handleAddNewLine}
