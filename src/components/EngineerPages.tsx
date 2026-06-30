@@ -1201,24 +1201,70 @@ function LogProductivityTab({
 
   const vanStock = engineerStock[currentUser.email] || [];
 
-  const handleAddLine = () => {
-    // Default to the first available SKU that has positive van stock or just the first SKU
-    const firstStockAvailableSku = skus.find((s) => {
-      const vsItem = vanStock.find((x) => x.skuId === s.id);
-      return vsItem && vsItem.qty > 0;
-    });
-    const initialSku = firstStockAvailableSku?.id || skus[0]?.id || '';
-    setLines([...lines, { skuId: initialSku, qty: 1, saleValue: '' }]);
-  };
+  const [newSkuId, setNewSkuId] = useState('');
+  const [newQty, setNewQty] = useState('1');
+  const [newSaleValue, setNewSaleValue] = useState('');
+
+  useEffect(() => {
+    if (!newSkuId && skus.length > 0) {
+      const firstStockAvailableSku = skus.find((s) => {
+        const vsItem = vanStock.find((x) => x.skuId === s.id);
+        return vsItem && vsItem.qty > 0;
+      });
+      setNewSkuId(firstStockAvailableSku?.id || skus[0]?.id || '');
+    }
+  }, [skus, vanStock, newSkuId]);
 
   const handleRemoveLine = (idx: number) => {
     setLines(lines.filter((_, i) => i !== idx));
   };
 
-  const handleUpdateLine = (idx: number, field: keyof AccessoryLine, value: any) => {
-    const updated = [...lines];
-    updated[idx] = { ...updated[idx], [field]: value };
-    setLines(updated);
+  const handleAddNewLine = () => {
+    if (!newSkuId) {
+      onAddToast('Please select a SKU first.', 'error');
+      return;
+    }
+    const qtyInt = parseInt(newQty, 10);
+    if (isNaN(qtyInt) || qtyInt <= 0) {
+      onAddToast('Quantity sold must be greater than zero.', 'error');
+      return;
+    }
+    const saleValFloat = parseFloat(newSaleValue);
+    if (isNaN(saleValFloat) || saleValFloat < 0) {
+      onAddToast('Please enter a valid sale value.', 'error');
+      return;
+    }
+
+    // Check van stock
+    const stockItem = vanStock.find((s) => s.skuId === newSkuId);
+    const stockQty = stockItem ? stockItem.qty : 0;
+    const alreadyAddedQty = lines
+      .filter((ln) => ln.skuId === newSkuId)
+      .reduce((sum, ln) => sum + Number(ln.qty), 0);
+
+    if (qtyInt + alreadyAddedQty > stockQty) {
+      onAddToast(`Insufficient stocks inside van for ${getSku(skus, newSkuId).name} (Trunk: ${stockQty}, Already added: ${alreadyAddedQty})`, 'error');
+      return;
+    }
+
+    // Add or merge line
+    const existingIdx = lines.findIndex((ln) => ln.skuId === newSkuId);
+    if (existingIdx > -1) {
+      const updated = [...lines];
+      updated[existingIdx] = {
+        ...updated[existingIdx],
+        qty: Number(updated[existingIdx].qty) + qtyInt,
+        saleValue: Number(updated[existingIdx].saleValue) + saleValFloat
+      };
+      setLines(updated);
+    } else {
+      setLines([...lines, { skuId: newSkuId, qty: qtyInt, saleValue: saleValFloat }]);
+    }
+
+    // Reset inputs
+    setNewQty('1');
+    setNewSaleValue('');
+    onAddToast('Accessory added successfully!', 'success');
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -1348,112 +1394,148 @@ function LogProductivityTab({
 
         <div className="border-t border-slate-100 pt-5 space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="font-display text-xs font-bold text-slate-900 uppercase tracking-wider">Accessories Sold On Jobs</h3>
-            <button
-              type="button"
-              onClick={handleAddLine}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50/50 px-2.5 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-55 transition text-left"
-            >
-              <Plus className="h-4 w-4" /> Add Item Line
-            </button>
+            <h3 className="font-display text-xs font-bold text-slate-900 uppercase tracking-wider">
+              ACCESSORIES SOLD ON JOBS
+            </h3>
+            {lines.length === 0 && (
+              <span className="text-xs font-bold text-slate-400">
+                Add items first to record them
+              </span>
+            )}
           </div>
 
-          <div className="space-y-3">
-            {lines.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-xs font-semibold text-slate-400">
-                No accessories sold on jobs recorded. Tap "Add Item Line" if you introduced elements like filters or gas.
+          <div className="rounded-2xl border border-slate-200/50 bg-slate-50/10 p-5 shadow-sm space-y-4">
+            <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-indigo-950">
+              <span className="h-2 w-2 rounded-full bg-indigo-650 inline-block"></span>
+              NEW SKU ITEM ADDITION
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+              <div className="sm:col-span-5">
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">
+                  Product SKU / Availability
+                </label>
+                <select
+                  value={newSkuId}
+                  onChange={(e) => setNewSkuId(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-semibold outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-150"
+                >
+                  <option value="">Select SKU...</option>
+                  {skus
+                    .filter((s) => {
+                      const vsItem = vanStock.find((x) => x.skuId === s.id);
+                      return vsItem && vsItem.qty > 0;
+                    })
+                    .map((s) => {
+                      return (
+                        <option key={s.id} value={s.id}>
+                          {s.id} - {s.name}
+                        </option>
+                      );
+                    })}
+                </select>
               </div>
-            ) : (
-              lines.map((ln, idx) => {
-                const stockItem = vanStock.find((v) => v.skuId === ln.skuId);
-                const stockQty = stockItem ? stockItem.qty : 0;
-                return (
-                  <div
-                    key={`ln-${idx}`}
-                    className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-start border border-slate-100 bg-slate-50/50 rounded-xl p-4"
-                  >
-                    <div className="sm:col-span-5">
-                      <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                        Product SKU
-                      </label>
-                      <select
-                        value={ln.skuId}
-                        onChange={(e) => handleUpdateLine(idx, 'skuId', e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold outline-none focus:border-indigo-600"
-                      >
-                        {skus
-                          .filter((s) => {
-                            const vsItem = vanStock.find((x) => x.skuId === s.id);
-                            const vQty = vsItem ? vsItem.qty : 0;
-                            return vQty > 0 || s.id === ln.skuId;
-                          })
-                          .map((s) => {
-                            const vsItem = vanStock.find((x) => x.skuId === s.id);
-                            const vQty = vsItem ? vsItem.qty : 0;
-                            return (
-                              <option key={s.id} value={s.id}>
-                                {s.id} - {s.name} (Van Trunk: {vQty})
-                              </option>
-                            );
-                          })}
-                      </select>
-                      <div className="mt-1 flex items-center gap-1">
-                        {stockQty === 0 ? (
-                          <span className="flex items-center gap-0.5 text-[10px] font-bold text-rose-600 text-left">
-                            <AlertOctagon className="h-3 w-3 shrink-0" /> Zero trunk stocks! Requester form first
+
+              <div className="sm:col-span-3">
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">
+                  Qty Sold
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={newQty}
+                  onChange={(e) => setNewQty(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-semibold outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-150"
+                />
+              </div>
+
+              <div className="sm:col-span-3">
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">
+                  Sale Value (₹)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={newSaleValue}
+                  onChange={(e) => setNewSaleValue(e.target.value)}
+                  placeholder="e.g. 500"
+                  className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-semibold outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-150"
+                />
+              </div>
+
+              <div className="sm:col-span-1">
+                <button
+                  type="button"
+                  onClick={handleAddNewLine}
+                  className="w-full flex items-center justify-center rounded-xl bg-indigo-900 hover:bg-slate-900 text-white font-extrabold py-3 text-sm transition shadow-md shadow-indigo-900/10 cursor-pointer h-[46px]"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+
+            {newSkuId && (
+              <div className="mt-1 flex items-center gap-1">
+                {(() => {
+                  const vsItem = vanStock.find((x) => x.skuId === newSkuId);
+                  const vQty = vsItem ? vsItem.qty : 0;
+                  return vQty === 0 ? (
+                    <span className="flex items-center gap-0.5 text-xs font-semibold text-rose-600 text-left">
+                      <AlertOctagon className="h-4 w-4 shrink-0 text-rose-600" /> Zero trunk stocks! Requester form first
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-xs font-semibold text-emerald-800 text-left">
+                      <CheckCircle className="h-4 w-4 shrink-0 text-emerald-600 animate-pulse" /> Van Stock Trunk: {vQty} units available
+                    </span>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+
+          {lines.length > 0 && (
+            <div className="space-y-3 pt-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                ADDED ACCESSORIES ({lines.length})
+              </h4>
+              <div className="space-y-3">
+                {lines.map((ln, idx) => {
+                  const skuItem = getSku(skus, ln.skuId);
+                  return (
+                    <div
+                      key={`added-${idx}`}
+                      className="rounded-2xl border border-slate-100 bg-white p-4 flex items-center justify-between gap-4 shadow-sm"
+                    >
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex flex-wrap items-center gap-2 text-sm text-slate-800 font-bold">
+                          <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 inline-block shrink-0"></span>
+                          <span className="font-mono text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-lg border border-indigo-100/50">
+                            {ln.skuId}
                           </span>
-                        ) : (
-                          <span className="flex items-center gap-0.5 text-[10px] font-semibold text-emerald-800 text-left">
-                            <CheckCircle className="h-3 w-3 shrink-0" /> Van Stock Trunk: {stockQty} units available
-                          </span>
-                        )}
+                          <span className="text-slate-300">|</span>
+                          <span>{skuItem.name}</span>
+                          <span className="text-slate-300">|</span>
+                          <span className="text-slate-600 font-semibold">Qty: {ln.qty}</span>
+                        </div>
+                        <div className="text-emerald-700 font-extrabold text-sm pl-4.5">
+                          Value: {fmtCur(Number(ln.saleValue))}
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="sm:col-span-3">
-                      <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                        Qty Sold
-                      </label>
-                      <input
-                        type="number"
-                        min="1"
-                        required
-                        value={ln.qty}
-                        onChange={(e) => handleUpdateLine(idx, 'qty', parseInt(e.target.value, 10) || 0)}
-                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold focus:border-indigo-600 outline-none"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-3">
-                      <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                        Sale Value
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        required
-                        value={ln.saleValue}
-                        onChange={(e) => handleUpdateLine(idx, 'saleValue', e.target.value)}
-                        placeholder="e.g. 500"
-                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold focus:border-indigo-600 outline-none"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-1 pt-4 text-right">
                       <button
                         type="button"
                         onClick={() => handleRemoveLine(idx)}
-                        className="rounded-lg border border-slate-200 hover:border-rose-200 p-1.5 text-slate-400 hover:text-rose-600 transition"
+                        className="rounded-xl border border-slate-200 hover:border-rose-200 p-2 text-slate-400 hover:text-rose-600 transition bg-white cursor-pointer shrink-0"
                       >
                         <Trash className="h-4 w-4" />
                       </button>
                     </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
