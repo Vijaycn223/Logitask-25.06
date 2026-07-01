@@ -44,6 +44,18 @@ export function EngineerPages({
   onAddToast,
 }: EngineerPagesProps) {
   const { prefix: currentMonthPrefix, label: currentMonthLabel } = getMonthRange();
+  const [selectedDashboardMonth, setSelectedDashboardMonth] = useState(currentMonthPrefix);
+
+  const getMonthLabel = (mPrefix: string) => {
+    if (mPrefix === currentMonthPrefix) return currentMonthLabel;
+    try {
+      const [year, month] = mPrefix.split('-');
+      const date = new Date(Number(year), Number(month) - 1, 1);
+      return date.toLocaleDateString('default', { month: 'long', year: 'numeric' });
+    } catch {
+      return mPrefix;
+    }
+  };
 
   // Helper selectors
   const getLogsForMonth = (mPrefix: string) =>
@@ -158,19 +170,29 @@ export function EngineerPages({
   };
 
   if (activeTab === 'eng-dashboard') {
-    const mtdLogs = getLogsForMonth(currentMonthPrefix);
+    const mtdLogs = getLogsForMonth(selectedDashboardMonth);
     const mtdCalls = calcCallsClosed(mtdLogs);
     const mtdRev = calcRevenue(mtdLogs);
     const mtdInc = calcIncentive(mtdLogs);
     const mtdRcp = calcRcpCollected(mtdLogs);
-    const mtdPresent = countPresentDays(currentMonthPrefix);
+    const mtdPresent = countPresentDays(selectedDashboardMonth);
 
     return (
       <div className="space-y-6">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="font-display text-2xl font-extrabold text-slate-950">Welcome, {currentUser.name.split(' ')[0]} 👋</h1>
-            <p className="text-sm font-medium text-slate-400">Month-to-date summary for <span className="font-semibold text-slate-600">{currentMonthLabel}</span></p>
+            <h1 className="font-display text-2xl font-extrabold text-slate-950 font-display">Welcome, {currentUser.name.split(' ')[0]} 👋</h1>
+            <p className="text-sm font-medium text-slate-400">Dashboard summary for <span className="font-semibold text-slate-600">{getMonthLabel(selectedDashboardMonth)}</span></p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Select Month</span>
+            <input
+              type="month"
+              value={selectedDashboardMonth}
+              onChange={(e) => setSelectedDashboardMonth(e.target.value || currentMonthPrefix)}
+              className="rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold text-slate-600 outline-none focus:border-indigo-600"
+            />
           </div>
         </div>
 
