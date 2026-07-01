@@ -449,13 +449,23 @@ function AdminPagesInner({
         return p;
       });
 
-      // Credit key main stock levels
+      // Credit key main stock levels with Weighted Average Price calculation
       const updatedInventory = inventory.map((i) => {
         if (i.skuId === pi.skuId) {
+          const startingQty = i.qty;
+          const startingUnitPrice = i.unitPrice;
+          const newQty = startingQty + pi.qty;
+          let newUnitPrice = pi.unitPrice;
+
+          if (startingQty > 0) {
+            const totalCost = (startingQty * startingUnitPrice) + (pi.qty * pi.unitPrice);
+            newUnitPrice = Math.round((totalCost / newQty) * 100) / 100;
+          }
+
           return {
             ...i,
-            qty: i.qty + pi.qty,
-            unitPrice: pi.unitPrice > 0 ? pi.unitPrice : i.unitPrice
+            qty: newQty,
+            unitPrice: newUnitPrice
           };
         }
         return i;
