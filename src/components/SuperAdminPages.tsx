@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, UserRole, Organisation } from '../types';
+import { User, UserRole, Organisation, PurchaseOrder } from '../types';
 import { 
   Building, 
   Plus, 
@@ -20,7 +20,11 @@ import {
   Mail, 
   Activity,
   UserCheck, 
-  Network
+  Network,
+  Eye,
+  EyeOff,
+  Power,
+  Ban
 } from 'lucide-react';
 
 interface SuperAdminPagesProps {
@@ -28,6 +32,8 @@ interface SuperAdminPagesProps {
   users: User[];
   organisations: Organisation[];
   activeTab: string;
+  purchaseOrders: PurchaseOrder[];
+  onUpdatePurchaseOrders: (pos: PurchaseOrder[]) => void;
   onUpdateUsers: (users: User[]) => void;
   onUpdateOrganisations: (orgs: Organisation[]) => void;
   onAddToast: (msg: string, type?: 'success' | 'error') => void;
@@ -38,6 +44,8 @@ export function SuperAdminPages({
   users,
   organisations,
   activeTab,
+  purchaseOrders,
+  onUpdatePurchaseOrders,
   onUpdateUsers,
   onUpdateOrganisations,
   onAddToast,
@@ -70,6 +78,8 @@ export function SuperAdminPages({
   const [userRole, setUserRole] = useState<UserRole>('Admin');
   const [userOrgId, setUserOrgId] = useState('');
   const [userPassword, setUserPassword] = useState('password');
+  const [showOrgAdminPassword, setShowOrgAdminPassword] = useState(false);
+  const [showUserPassword, setShowUserPassword] = useState(false);
 
   const userFormRef = useRef<HTMLFormElement>(null);
 
@@ -113,7 +123,7 @@ export function SuperAdminPages({
       return;
     }
 
-    const targetOrgId = editingOrg ? editingOrg.id : `org-${Date.now().toString()}`;
+    const targetOrgId = editingOrg ? editingOrg.id : normalizedSiteCode;
     let nextUsers = [...users];
 
     // Validate admin details if configured
@@ -191,6 +201,9 @@ export function SuperAdminPages({
         name: orgName.trim(),
         siteCode: normalizedSiteCode,
         createdAt: new Date().toISOString(),
+        status: 'active',
+        subscriptionPlan: 'free-trial',
+        subscriptionPeriodEnd: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString()
       };
       onUpdateOrganisations([...organisations, newOrg]);
 
@@ -239,6 +252,33 @@ export function SuperAdminPages({
 
     onAddToast(`Organization "${org.name}" has been deleted.`, 'success');
     setOrgToDelete(null);
+  };
+
+  const handleToggleOrgStatus = (org: Organisation) => {
+    const isSuspended = org.status === 'suspended';
+    const newStatus: 'active' | 'suspended' | 'expired' = isSuspended ? 'active' : 'suspended';
+    const suspendUsers = !isSuspended;
+
+    const updatedOrgs = organisations.map((o) => {
+      if (o.id === org.id) {
+        return { ...o, status: newStatus };
+      }
+      return o;
+    });
+    onUpdateOrganisations(updatedOrgs);
+
+    const updatedUsers = users.map((u) => {
+      if (u.orgId === org.id) {
+        return { ...u, isSuspended: suspendUsers };
+      }
+      return u;
+    });
+    onUpdateUsers(updatedUsers);
+
+    onAddToast(
+      `Organization "${org.name}" has been ${isSuspended ? 'Enabled' : 'Disabled'}. All associated users have been ${isSuspended ? 'enabled' : 'disabled'}.`,
+      'success'
+    );
   };
 
   // Submit User Handler
@@ -329,6 +369,7 @@ export function SuperAdminPages({
   });
 
   const filteredUsers = users.filter((u) => {
+    if (u.role !== 'Admin') return false;
     const term = userSearch.toLowerCase();
     const orgNameText = getOrgName(u.orgId).toLowerCase();
     return (
@@ -338,6 +379,8 @@ export function SuperAdminPages({
       orgNameText.includes(term)
     );
   });
+
+
 
   return (
     <div id="superadmin-wrapper" className="space-y-6">
@@ -499,14 +542,23 @@ export function SuperAdminPages({
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-slate-500 mb-1">Admin Password Pin</label>
-                        <input
-                          type="password"
-                          required={hasOrgAdmin}
-                          value={orgAdminPassword}
-                          onChange={(e) => setOrgAdminPassword(e.target.value)}
-                          placeholder="••••••••"
-                          className="w-full text-sm font-semibold rounded-xl border border-slate-200 py-2.5 px-3.5 outline-none transition focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 bg-white text-slate-800"
-                        />
+                        <div className="relative">
+                          <input
+                            type={showOrgAdminPassword ? "text" : "password"}
+                            required={hasOrgAdmin}
+                            value={orgAdminPassword}
+                            onChange={(e) => setOrgAdminPassword(e.target.value)}
+                            placeholder="••••••••"
+                            className="w-full text-sm font-semibold rounded-xl border border-slate-200 py-2.5 pl-3.5 pr-10 outline-none transition focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 bg-white text-slate-800"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowOrgAdminPassword(!showOrgAdminPassword)}
+                            className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                          >
+                            {showOrgAdminPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -557,13 +609,14 @@ export function SuperAdminPages({
                     <th className="p-4">Site Code</th>
                     <th className="p-4">Tenant Administrator</th>
                     <th className="p-4">Members/Users</th>
+                    <th className="p-4">Status</th>
                     <th className="p-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm font-semibold">
                   {filteredOrgs.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="p-8 text-center text-slate-400 font-bold text-xs">
+                      <td colSpan={6} className="p-8 text-center text-slate-400 font-bold text-xs">
                         No organizations match your query.
                       </td>
                     </tr>
@@ -614,8 +667,28 @@ export function SuperAdminPages({
                               <span>{getOrgUserCount(org.id)} members</span>
                             </div>
                           </td>
+                          <td className="p-4">
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                              org.status === 'suspended'
+                                ? 'bg-rose-50 text-rose-700 border border-rose-100'
+                                : 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                            }`}>
+                              {org.status === 'suspended' ? 'Suspended' : 'Active'}
+                            </span>
+                          </td>
                           <td className="p-4 text-right">
                             <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => handleToggleOrgStatus(org)}
+                                className={`p-1.5 rounded-lg transition ${
+                                  org.status === 'suspended'
+                                    ? 'text-emerald-600 hover:bg-emerald-50/50 hover:text-emerald-700'
+                                    : 'text-rose-600 hover:bg-rose-50/50 hover:text-rose-700'
+                                }`}
+                                title={org.status === 'suspended' ? "Enable Organization Workspace" : "Disable Organization Workspace"}
+                              >
+                                {org.status === 'suspended' ? <Power className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
+                              </button>
                               <button
                                 onClick={() => {
                                   setEditingOrg(org);
@@ -741,17 +814,11 @@ export function SuperAdminPages({
                       onChange={(e) => {
                         const nextRole = e.target.value as UserRole;
                         setUserRole(nextRole);
-                        if (nextRole === 'Super Admin') {
-                          setUserOrgId('');
-                        }
                       }}
-                      className="w-full text-sm font-semibold rounded-xl border border-slate-200 py-2.5 px-3.5 outline-none bg-white transition focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100"
+                      disabled={true}
+                      className="w-full text-sm font-semibold rounded-xl border border-slate-200 py-2.5 px-3.5 outline-none bg-slate-50 text-slate-500 transition"
                     >
-                      <option value="Super Admin">Super Admin (Global Manager)</option>
                       <option value="Admin">Admin (Org Master)</option>
-                      <option value="Store Manager">Store Manager (Store Supervisor)</option>
-                      <option value="Team Leader">Team Leader (Field Supervisor)</option>
-                      <option value="Engineer">Engineer (Field Operator)</option>
                     </select>
                   </div>
 
@@ -773,14 +840,23 @@ export function SuperAdminPages({
 
                   <div className="md:col-span-2">
                     <label className="block text-xs font-bold text-slate-500 mb-1">Login Password Pin</label>
-                    <input
-                      type="password"
-                      required
-                      value={userPassword}
-                      onChange={(e) => setUserPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full text-sm font-semibold rounded-xl border border-slate-200 py-2.5 px-3.5 outline-none transition focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showUserPassword ? "text" : "password"}
+                        required
+                        value={userPassword}
+                        onChange={(e) => setUserPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full text-sm font-semibold rounded-xl border border-slate-200 py-2.5 pl-3.5 pr-10 outline-none transition focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowUserPassword(!showUserPassword)}
+                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        {showUserPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                      </button>
+                    </div>
                   </div>
                 </div>
 

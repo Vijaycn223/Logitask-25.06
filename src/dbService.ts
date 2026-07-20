@@ -24,7 +24,8 @@ import {
   StockRequest, 
   PurchaseInward, 
   RevokeRequest,
-  Organisation
+  Organisation,
+  PurchaseOrder
 } from './types';
 import {
   INITIAL_USERS,
@@ -36,7 +37,8 @@ import {
   INITIAL_STOCK_REQUESTS,
   INITIAL_PURCHASE_INWARD,
   INITIAL_REVOKE_REQUESTS,
-  INITIAL_ORGANISATIONS
+  INITIAL_ORGANISATIONS,
+  INITIAL_PURCHASE_ORDERS
 } from './mockData';
 
 export enum OperationType {
@@ -160,7 +162,7 @@ export async function seedInitialDatabaseIfEmpty() {
     if (skusSnap.empty) {
       console.log("Seeding SKUs collection...");
       for (const sku of INITIAL_SKUS) {
-        await setDoc(doc(db, 'skus', `org-001_${sku.id}`), { ...sku, orgId: 'org-001' });
+        await setDoc(doc(db, 'skus', sku.id), { ...sku, orgId: 'org-001' });
       }
     }
 
@@ -227,6 +229,15 @@ export async function seedInitialDatabaseIfEmpty() {
       }
     }
 
+    // 10. Purchase Orders
+    const poSnap = await getDocs(collection(db, 'purchaseOrders'));
+    if (poSnap.empty) {
+      console.log("Seeding purchaseOrders collection...");
+      for (const po of INITIAL_PURCHASE_ORDERS) {
+        await setDoc(doc(db, 'purchaseOrders', po.id), { ...po, orgId: 'org-001' });
+      }
+    }
+
     console.log("Firebase seeding complete!");
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, 'seeding');
@@ -246,7 +257,7 @@ export async function forceResetDatabaseToSeed() {
       await setDoc(doc(db, 'users', user.email), user);
     }
     for (const sku of INITIAL_SKUS) {
-      await setDoc(doc(db, 'skus', `org-001_${sku.id}`), { ...sku, orgId: 'org-001' });
+      await setDoc(doc(db, 'skus', sku.id), { ...sku, orgId: 'org-001' });
     }
     for (const item of INITIAL_MAIN_INVENTORY) {
       await setDoc(doc(db, 'inventory', `org-001_${item.skuId}`), { ...item, orgId: 'org-001' });
@@ -266,6 +277,9 @@ export async function forceResetDatabaseToSeed() {
     // Delete any other records or reset to initial
     for (const p of INITIAL_PURCHASE_INWARD) {
       await setDoc(doc(db, 'purchaseInward', p.id), { ...p, orgId: 'org-001' });
+    }
+    for (const po of INITIAL_PURCHASE_ORDERS) {
+      await setDoc(doc(db, 'purchaseOrders', po.id), { ...po, orgId: 'org-001' });
     }
     // To clear previous lists of extra requests, we would ideally delete them.
     // For this applet, doing setDoc updates of initialized items is clean and robust.
