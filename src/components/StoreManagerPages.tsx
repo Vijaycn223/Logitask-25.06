@@ -2980,43 +2980,15 @@ export function StoreManagerPages({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Mark status</label>
-                  <div className="grid grid-cols-2 gap-4">
-                    <label
-                      className={`flex items-center justify-center gap-2 p-3 rounded-xl border cursor-pointer transition ${
-                        smAttStatus === 'Present'
-                          ? 'border-emerald-500 bg-emerald-50/50 text-emerald-800 font-bold'
-                          : 'border-slate-200 hover:bg-slate-50 text-slate-650'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="status"
-                        value="Present"
-                        checked={smAttStatus === 'Present'}
-                        onChange={() => setSmAttStatus('Present')}
-                        className="sr-only"
-                      />
-                      <span>Present</span>
-                    </label>
-                    <label
-                      className={`flex items-center justify-center gap-2 p-3 rounded-xl border cursor-pointer transition ${
-                        smAttStatus === 'Leave'
-                          ? 'border-amber-500 bg-amber-50/50 text-amber-800 font-bold'
-                          : 'border-slate-200 hover:bg-slate-50 text-slate-650'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="status"
-                        value="Leave"
-                        checked={smAttStatus === 'Leave'}
-                        onChange={() => setSmAttStatus('Leave')}
-                        className="sr-only"
-                      />
-                      <span>Leave</span>
-                    </label>
-                  </div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">Mark status</label>
+                  <select
+                    value={smAttStatus}
+                    onChange={(e) => setSmAttStatus(e.target.value as 'Present' | 'Leave')}
+                    className="w-full rounded-xl border border-slate-250 bg-slate-50/50 p-2.5 text-sm text-slate-800 focus:border-indigo-600 focus:bg-white focus:ring-1 focus:ring-indigo-600 outline-none transition font-semibold"
+                  >
+                    <option value="Present">Present</option>
+                    <option value="Leave">Leave</option>
+                  </select>
                 </div>
 
                 <div>
