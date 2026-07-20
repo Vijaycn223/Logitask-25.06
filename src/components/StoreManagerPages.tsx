@@ -458,7 +458,7 @@ export function StoreManagerPages({
   // Attendance marking form state
   const [smAttEngEmail, setSmAttEngEmail] = useState('');
   const [smAttDate, setSmAttDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [smAttStatus, setSmAttStatus] = useState<'Present' | 'Leave'>('Present');
+  const [smAttStatus, setSmAttStatus] = useState<'Present' | 'Leave' | ''>('');
   const [smAttRemarks, setSmAttRemarks] = useState('');
 
   const engineers = users.filter((u) => u.role === 'Engineer');
@@ -2922,6 +2922,11 @@ export function StoreManagerPages({
     const handleMarkAttendanceSM = (e: React.FormEvent) => {
       e.preventDefault();
 
+      if (!smAttStatus) {
+        onAddToast('Please select a valid attendance status.', 'error');
+        return;
+      }
+
       const isAlreadyRequested = attendanceRequests.some(
         req => req.engEmail.toLowerCase() === currentUser.email.toLowerCase() && req.date === smAttDate && req.approvedStatus !== 'Rejected'
       );
@@ -2945,6 +2950,7 @@ export function StoreManagerPages({
 
       onAddAttendanceRequest(newRequest);
       setSmAttRemarks('');
+      setSmAttStatus('');
       onAddToast('Your attendance request has been submitted to Admin successfully!', 'success');
     };
 
@@ -2983,9 +2989,10 @@ export function StoreManagerPages({
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">Mark status</label>
                   <select
                     value={smAttStatus}
-                    onChange={(e) => setSmAttStatus(e.target.value as 'Present' | 'Leave')}
+                    onChange={(e) => setSmAttStatus(e.target.value as 'Present' | 'Leave' | '')}
                     className="w-full rounded-xl border border-slate-250 bg-slate-50/50 p-2.5 text-sm text-slate-800 focus:border-indigo-600 focus:bg-white focus:ring-1 focus:ring-indigo-600 outline-none transition font-semibold"
                   >
+                    <option value="">Select</option>
                     <option value="Present">Present</option>
                     <option value="Leave">Leave</option>
                   </select>

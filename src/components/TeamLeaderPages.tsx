@@ -104,7 +104,7 @@ export function TeamLeaderPages({
   // Attendance Marking State
   const [attEngEmail, setAttEngEmail] = useState('');
   const [attDate, setAttDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [attStatus, setAttStatus] = useState<'Present' | 'Leave'>('Present');
+  const [attStatus, setAttStatus] = useState<'Present' | 'Leave' | ''>('');
   const [attRemarks, setAttRemarks] = useState('');
   // Sorting states
   const [consolidatedSortKey, setConsolidatedSortKey] = useState<'profile' | 'present' | 'calls' | 'revenue' | 'perCall' | 'rcpValue' | 'rcpQty'>('profile');
@@ -875,6 +875,11 @@ export function TeamLeaderPages({
     const handleMarkAttendance = (e: React.FormEvent) => {
       e.preventDefault();
 
+      if (!attStatus) {
+        onAddToast('Please select a valid attendance status.', 'error');
+        return;
+      }
+
       const isAlreadyRequested = attendanceRequests.some(
         req => req.engEmail.toLowerCase() === currentUser.email.toLowerCase() && req.date === attDate && req.approvedStatus !== 'Rejected'
       );
@@ -898,6 +903,7 @@ export function TeamLeaderPages({
 
       onAddAttendanceRequest(newRequest);
       setAttRemarks('');
+      setAttStatus('');
       onAddToast('Your attendance request has been submitted to Admin successfully!', 'success');
     };
 
@@ -936,9 +942,10 @@ export function TeamLeaderPages({
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">Mark status</label>
                   <select
                     value={attStatus}
-                    onChange={(e) => setAttStatus(e.target.value as 'Present' | 'Leave')}
+                    onChange={(e) => setAttStatus(e.target.value as 'Present' | 'Leave' | '')}
                     className="w-full rounded-xl border border-slate-250 bg-slate-50/50 p-2.5 text-sm text-slate-800 focus:border-indigo-600 focus:bg-white focus:ring-1 focus:ring-indigo-600 outline-none transition font-semibold"
                   >
+                    <option value="">Select</option>
                     <option value="Present">Present</option>
                     <option value="Leave">Leave</option>
                   </select>
