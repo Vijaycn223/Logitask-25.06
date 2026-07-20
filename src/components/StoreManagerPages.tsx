@@ -4,8 +4,9 @@
  */
 
 import React, { useState } from 'react';
-import { User, SKU, InventoryItem, StockRequest, PurchaseInward, LPRequest, ProductivityLog, AttendanceRequest, AttendanceRecord, ReturnRequest, EngineerStock } from '../types';
+import { User, SKU, InventoryItem, StockRequest, PurchaseInward, LPRequest, ProductivityLog, AttendanceRequest, AttendanceRecord, ReturnRequest, EngineerStock, PurchaseOrder, SupplierDebit, Vendor, SaleRecord } from '../types';
 import { getSku, getInvItem, getUser, fmtDate, fmtCur, genId, getMonthRange } from '../utils';
+import { SupplierLedgerView } from './SupplierLedgerView';
 import {
   Boxes,
   Truck,
@@ -31,8 +32,10 @@ import {
   Search,
   Tag,
   RotateCcw,
-  Layers
+  Layers,
+  Edit2
 } from 'lucide-react';
+import { POTrackerView } from './POTrackerView';
 
 
 interface StoreManagerPagesProps {
@@ -43,12 +46,18 @@ interface StoreManagerPagesProps {
   engineerStock: EngineerStock;
   stockRequests: StockRequest[];
   purchaseInward: PurchaseInward[];
+  supplierDebits: SupplierDebit[];
+  onAddSupplierDebit: (sd: SupplierDebit) => void;
+  vendors: Vendor[];
+  onAddVendor: (v: Vendor) => void;
   activeTab: string;
   lpRequests: LPRequest[];
   productivityLogs: ProductivityLog[];
   attendanceRequests: AttendanceRequest[];
   attendance?: AttendanceRecord;
   returnRequests?: ReturnRequest[];
+  purchaseOrders: PurchaseOrder[];
+  onUpdatePurchaseOrders: (pos: PurchaseOrder[]) => void;
   onAddAttendanceRequest: (req: AttendanceRequest) => void;
   onUpdateAttendanceRequests: (reqs: AttendanceRequest[]) => void;
   onUpdateLogs: (l: ProductivityLog[]) => void;
@@ -61,6 +70,9 @@ interface StoreManagerPagesProps {
   onAddToast: (msg: string, type?: 'success' | 'error') => void;
   onUpdateSkus: (skus: SKU[]) => void;
   onUpdateInventory: (inventory: InventoryItem[]) => void;
+  salesRecords: SaleRecord[];
+  onAddSaleRecord: (sale: SaleRecord) => void;
+  onUpdateSalesRecords: (sales: SaleRecord[]) => void;
 }
 
 export function StoreManagerPages({
@@ -69,14 +81,23 @@ export function StoreManagerPages({
   skus,
   inventory,
   engineerStock = {},
+  salesRecords = [],
+  onAddSaleRecord,
+  onUpdateSalesRecords,
   stockRequests,
   purchaseInward,
+  supplierDebits,
+  onAddSupplierDebit,
+  vendors,
+  onAddVendor,
   activeTab,
   lpRequests,
   productivityLogs,
   attendanceRequests = [],
   attendance = {},
   returnRequests = [],
+  purchaseOrders,
+  onUpdatePurchaseOrders,
   onAddAttendanceRequest,
   onUpdateAttendanceRequests,
   onUpdateLogs,
@@ -95,6 +116,147 @@ export function StoreManagerPages({
   const [smNotes, setSmNotes] = useState<Record<string, string>>({});
   const [processingStockRequestIds, setProcessingStockRequestIds] = useState<string[]>([]);
   const [processingProductivityIds, setProcessingProductivityIds] = useState<string[]>([]);
+  const [selectedPONumbers, setSelectedPONumbers] = useState<Record<string, string>>({});
+  const [poReceivedValues, setPoReceivedValues] = useState<Record<string, string>>({});
+  const [editingInwardId, setEditingInwardId] = useState<string | null>(null);
+  const [editingVendorName, setEditingVendorName] = useState<string>('');
+
+  // Store Sales Register Form States
+  const [saleDate, setSaleDate] = useState(new Date().toISOString().substring(0, 10));
+  const [saleVendorId, setSaleVendorId] = useState('');
+  const [saleSkuId, setSaleSkuId] = useState('');
+  const [saleQty, setSaleQty] = useState<number>(0);
+  const [salePrice, setSalePrice] = useState<number>(0);
+  const [saleRefNumber, setSaleRefNumber] = useState('');
+  const [saleDescription, setSaleDescription] = useState('');
+  const [salesSortKey, setSalesSortKey] = useState<'id' | 'date' | 'vendor' | 'sku' | 'qty' | 'price' | 'total' | 'status'>('date');
+  const [salesSortAsc, setSalesSortAsc] = useState<boolean>(false);
+
+  const handleSortSales = (key: 'id' | 'date' | 'vendor' | 'sku' | 'qty' | 'price' | 'total' | 'status') => {
+    if (salesSortKey === key) {
+      setSalesSortAsc(!salesSortAsc);
+    } else {
+      setSalesSortKey(key);
+      setSalesSortAsc(true);
+    }
+  };
+
+  const renderSalesSortIndicator = (key: string) => {
+    if (salesSortKey === key) {
+      return salesSortAsc ? ' ▲' : ' ▼';
+    }
+    return '';
+  };
+
+  const handleDownloadSalesCSV = () => {
+    const filteredSales = salesRecords.filter(s => s.submittedBy === currentUser.email);
+    const sortedSales = [...filteredSales].sort((a, b) => {
+      let comparison = 0;
+      const vendorA = vendors.find(v => v.id === a.vendorId)?.name || '';
+      const vendorB = vendors.find(v => v.id === b.vendorId)?.name || '';
+      const skuA = skus.find(s => s.id === a.skuId)?.name || '';
+      const skuB = skus.find(s => s.id === b.skuId)?.name || '';
+
+      if (salesSortKey === 'id') {
+        comparison = a.id.localeCompare(b.id);
+      } else if (salesSortKey === 'date') {
+        comparison = a.date.localeCompare(b.date);
+      } else if (salesSortKey === 'vendor') {
+        comparison = vendorA.localeCompare(vendorB);
+      } else if (salesSortKey === 'sku') {
+        comparison = skuA.localeCompare(skuB);
+      } else if (salesSortKey === 'qty') {
+        comparison = a.qty - b.qty;
+      } else if (salesSortKey === 'price') {
+        comparison = a.salePrice - b.salePrice;
+      } else if (salesSortKey === 'total') {
+        comparison = (a.qty * a.salePrice) - (b.qty * b.salePrice);
+      } else if (salesSortKey === 'status') {
+        comparison = a.status.localeCompare(b.status);
+      }
+
+      return salesSortAsc ? comparison : -comparison;
+    });
+
+    const header = ['Sale ID', 'Date', 'Vendor Name', 'SKU Name', 'Quantity', 'Sale Price (INR)', 'Total Value (INR)', 'Reference Number', 'Description', 'Status', 'Admin Note'];
+    const rows = sortedSales.map((s) => {
+      const vendorName = vendors.find(v => v.id === s.vendorId)?.name || '—';
+      const skuName = skus.find(sk => sk.id === s.skuId)?.name || '—';
+      return [
+        s.id,
+        s.date,
+        vendorName,
+        skuName,
+        s.qty,
+        s.salePrice,
+        s.qty * s.salePrice,
+        s.refNumber || '—',
+        s.description || '—',
+        s.status,
+        s.adminNote || '—'
+      ];
+    });
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + [header.join(','), ...rows.map((e) => e.map((val) => `"${val}"`).join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `b2b_sales_history.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    onAddToast('B2B Sales history CSV downloaded successfully!');
+  };
+
+  const handleSubmitSale = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!saleVendorId || !saleSkuId || saleQty <= 0 || salePrice <= 0) {
+      onAddToast('Please fill all required fields and ensure Qty and Price are greater than zero.', 'error');
+      return;
+    }
+
+    const invItem = inventory.find(i => i.skuId === saleSkuId);
+    const availableQty = invItem ? invItem.qty : 0;
+    if (saleQty > availableQty) {
+      onAddToast(`Insufficient stock! Only ${availableQty} units available in main inventory.`, 'error');
+      return;
+    }
+
+    // Deduct stock immediately
+    const updatedInventory = inventory.map(item => {
+      if (item.skuId === saleSkuId) {
+        return { ...item, qty: Math.max(0, item.qty - saleQty) };
+      }
+      return item;
+    });
+    onUpdateInventory(updatedInventory);
+
+    // Create the SaleRecord
+    const newSale: SaleRecord = {
+      id: `SL-${Math.random().toString(36).substring(2, 7).toUpperCase()}`,
+      orgId: currentUser.orgId || 'org-001',
+      date: saleDate,
+      vendorId: saleVendorId,
+      skuId: saleSkuId,
+      qty: saleQty,
+      salePrice: salePrice,
+      refNumber: saleRefNumber,
+      description: saleDescription,
+      status: 'Pending',
+      submittedBy: currentUser.email
+    };
+
+    onAddSaleRecord(newSale);
+    onAddToast(`Sale registered successfully and sent to Admin for approval. Deducted ${saleQty} units from inventory.`, 'success');
+
+    // Reset form fields
+    setSaleVendorId('');
+    setSaleSkuId('');
+    setSaleQty(0);
+    setSalePrice(0);
+    setSaleRefNumber('');
+    setSaleDescription('');
+  };
 
   // Inventory tab subplots and sorting states
   const [activeInventoryTab, setActiveInventoryTab] = useState<'warehouse' | 'engineer'>('warehouse');
@@ -117,7 +279,128 @@ export function StoreManagerPages({
     if (activeKey === currentKey) {
       return ascending ? ' ▲' : ' ▼';
     }
-    return '';
+    return ' ⇅';
+  };
+
+  const [recentInboundSortKey, setRecentInboundSortKey] = useState<'date' | 'sku' | 'name' | 'qty' | 'vendor' | 'status'>('date');
+  const [recentInboundSortAsc, setRecentInboundSortAsc] = useState<boolean>(false);
+  const toggleRecentInboundSort = (key: typeof recentInboundSortKey) => {
+    if (recentInboundSortKey === key) {
+      setRecentInboundSortAsc(!recentInboundSortAsc);
+    } else {
+      setRecentInboundSortKey(key);
+      setRecentInboundSortAsc(true);
+    }
+  };
+
+  const [warehouseStockSortKey, setWarehouseStockSortKey] = useState<'sku' | 'name' | 'qty'>('sku');
+  const [warehouseStockSortAsc, setWarehouseStockSortAsc] = useState<boolean>(true);
+  const toggleWarehouseStockSort = (key: typeof warehouseStockSortKey) => {
+    if (warehouseStockSortKey === key) {
+      setWarehouseStockSortAsc(!warehouseStockSortAsc);
+    } else {
+      setWarehouseStockSortKey(key);
+      setWarehouseStockSortAsc(true);
+    }
+  };
+
+  const [receiptsSortKey, setReceiptsSortKey] = useState<'id' | 'date' | 'sku' | 'name' | 'qty' | 'price' | 'vendor' | 'invoice' | 'status'>('date');
+  const [receiptsSortAsc, setReceiptsSortAsc] = useState<boolean>(false);
+  const toggleReceiptsSort = (key: typeof receiptsSortKey) => {
+    if (receiptsSortKey === key) {
+      setReceiptsSortAsc(!receiptsSortAsc);
+    } else {
+      setReceiptsSortKey(key);
+      setReceiptsSortAsc(true);
+    }
+  };
+
+  const [dispatchSortKey, setDispatchSortKey] = useState<'id' | 'engineer' | 'date' | 'name' | 'reqQty' | 'appQty' | 'status'>('date');
+  const [dispatchSortAsc, setDispatchSortAsc] = useState<boolean>(false);
+  const toggleDispatchSort = (key: typeof dispatchSortKey) => {
+    if (dispatchSortKey === key) {
+      setDispatchSortAsc(!dispatchSortAsc);
+    } else {
+      setDispatchSortKey(key);
+      setDispatchSortAsc(true);
+    }
+  };
+
+  const [returnSortKey, setReturnSortKey] = useState<'id' | 'date' | 'engineer' | 'name' | 'qty' | 'status'>('date');
+  const [returnSortAsc, setReturnSortAsc] = useState<boolean>(false);
+  const toggleReturnSort = (key: typeof returnSortKey) => {
+    if (returnSortKey === key) {
+      setReturnSortAsc(!returnSortAsc);
+    } else {
+      setReturnSortKey(key);
+      setReturnSortAsc(true);
+    }
+  };
+
+  const [attendanceSortKey, setAttendanceSortKey] = useState<'id' | 'name' | 'date' | 'proposed' | 'remarks' | 'status'>('date');
+  const [attendanceSortAsc, setAttendanceSortAsc] = useState<boolean>(false);
+  const toggleAttendanceSort = (key: typeof attendanceSortKey) => {
+    if (attendanceSortKey === key) {
+      setAttendanceSortAsc(!attendanceSortAsc);
+    } else {
+      setAttendanceSortKey(key);
+      setAttendanceSortAsc(true);
+    }
+  };
+
+  const [vehicleSortKey, setVehicleSortKey] = useState<'name' | 'vehicle' | 'contact' | 'logs' | 'dispatches'>('name');
+  const [vehicleSortAsc, setVehicleSortAsc] = useState<boolean>(true);
+  const toggleVehicleSort = (key: typeof vehicleSortKey) => {
+    if (vehicleSortKey === key) {
+      setVehicleSortAsc(!vehicleSortAsc);
+    } else {
+      setVehicleSortKey(key);
+      setVehicleSortAsc(true);
+    }
+  };
+
+  const [claimsSortKey, setClaimsSortKey] = useState<'id' | 'tlJob' | 'cost' | 'status'>('id');
+  const [claimsSortAsc, setClaimsSortAsc] = useState<boolean>(false);
+  const toggleClaimsSort = (key: typeof claimsSortKey) => {
+    if (claimsSortKey === key) {
+      setClaimsSortAsc(!claimsSortAsc);
+    } else {
+      setClaimsSortKey(key);
+      setClaimsSortAsc(true);
+    }
+  };
+
+  const [processedValidationSortKey, setProcessedValidationSortKey] = useState<'id' | 'engineer' | 'date' | 'calls' | 'rcp' | 'rcpQty' | 'status'>('date');
+  const [processedValidationSortAsc, setProcessedValidationSortAsc] = useState<boolean>(false);
+  const toggleProcessedValidationSort = (key: typeof processedValidationSortKey) => {
+    if (processedValidationSortKey === key) {
+      setProcessedValidationSortAsc(!processedValidationSortAsc);
+    } else {
+      setProcessedValidationSortKey(key);
+      setProcessedValidationSortAsc(true);
+    }
+  };
+
+  const [storeAttendanceSortKey, setStoreAttendanceSortKey] = useState<'id' | 'name' | 'date' | 'proposed' | 'remarks' | 'status'>('date');
+  const [storeAttendanceSortAsc, setStoreAttendanceSortAsc] = useState<boolean>(false);
+  const toggleStoreAttendanceSort = (key: typeof storeAttendanceSortKey) => {
+    if (storeAttendanceSortKey === key) {
+      setStoreAttendanceSortAsc(!storeAttendanceSortAsc);
+    } else {
+      setStoreAttendanceSortKey(key);
+      setStoreAttendanceSortAsc(true);
+    }
+  };
+
+  const [skuCatalogueSortKey, setSkuCatalogueSortKey] = useState<'sku' | 'name' | 'limit'>('sku');
+  const [skuCatalogueSortAsc, setSkuCatalogueSortAsc] = useState<boolean>(true);
+  const toggleSkuCatalogueSort = (key: typeof skuCatalogueSortKey) => {
+    if (skuCatalogueSortKey === key) {
+      setSkuCatalogueSortAsc(!skuCatalogueSortAsc);
+    } else {
+      setSkuCatalogueSortKey(key);
+      setSkuCatalogueSortAsc(true);
+    }
   };
 
   // SKU Registry State
@@ -168,6 +451,7 @@ export function StoreManagerPages({
 
   // Search and filter states for SM Validation Queue
   const [smSearchQuery, setSmSearchQuery] = useState('');
+  const [lpClaimsSearchQuery, setLpClaimsSearchQuery] = useState('');
   const [smSelectedEng, setSmSelectedEng] = useState('');
   const [smSelectedStatus, setSmSelectedStatus] = useState('');
 
@@ -478,17 +762,63 @@ export function StoreManagerPages({
           <div className="overflow-x-auto text-sm font-medium">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-100">
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Date</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">SKU Code</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Item Name</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Qty Received</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Vendor Supplier</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Status</th>
+                <tr className="border-b border-slate-100 select-none">
+                  <th
+                    onClick={() => toggleRecentInboundSort('date')}
+                    className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    Date{renderSortIndicator('date', recentInboundSortKey, recentInboundSortAsc)}
+                  </th>
+                  <th
+                    onClick={() => toggleRecentInboundSort('sku')}
+                    className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    SKU Code{renderSortIndicator('sku', recentInboundSortKey, recentInboundSortAsc)}
+                  </th>
+                  <th
+                    onClick={() => toggleRecentInboundSort('name')}
+                    className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    Item Name{renderSortIndicator('name', recentInboundSortKey, recentInboundSortAsc)}
+                  </th>
+                  <th
+                    onClick={() => toggleRecentInboundSort('qty')}
+                    className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    Qty Received{renderSortIndicator('qty', recentInboundSortKey, recentInboundSortAsc)}
+                  </th>
+                  <th
+                    onClick={() => toggleRecentInboundSort('vendor')}
+                    className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    Vendor Supplier{renderSortIndicator('vendor', recentInboundSortKey, recentInboundSortAsc)}
+                  </th>
+                  <th
+                    onClick={() => toggleRecentInboundSort('status')}
+                    className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    Status{renderSortIndicator('status', recentInboundSortKey, recentInboundSortAsc)}
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {purchaseInward.slice(-5).reverse().map((p) => (
+                {[...purchaseInward.slice(-5).reverse()].sort((a, b) => {
+                  let comparison = 0;
+                  if (recentInboundSortKey === 'date') {
+                    comparison = a.date.localeCompare(b.date);
+                  } else if (recentInboundSortKey === 'sku') {
+                    comparison = a.skuId.localeCompare(b.skuId);
+                  } else if (recentInboundSortKey === 'name') {
+                    comparison = getSku(skus, a.skuId).name.localeCompare(getSku(skus, b.skuId).name);
+                  } else if (recentInboundSortKey === 'qty') {
+                    comparison = a.qty - b.qty;
+                  } else if (recentInboundSortKey === 'vendor') {
+                    comparison = a.vendor.localeCompare(b.vendor);
+                  } else if (recentInboundSortKey === 'status') {
+                    comparison = a.status.localeCompare(b.status);
+                  }
+                  return recentInboundSortAsc ? comparison : -comparison;
+                }).map((p) => (
                   <tr key={p.id} className="hover:bg-slate-50/50">
                     <td className="py-3 px-3 text-slate-500">{fmtDate(p.date)}</td>
                     <td className="py-3 px-3"><span className="font-mono text-xs bg-slate-150 rounded px-1.5 py-0.5">{p.skuId}</span></td>
@@ -574,14 +904,25 @@ export function StoreManagerPages({
 
               <div>
                 <label className="block text-xs font-bold tracking-wider text-slate-500 mb-1">Vendor</label>
-                <input
-                  type="text"
-                  required
-                  value={inwardVendor}
-                  onChange={(e) => setInwardVendor(e.target.value)}
-                  placeholder="e.g. ABC Trading Co"
-                  className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold focus:border-indigo-600 outline-none"
-                />
+                {vendors.length === 0 ? (
+                  <div className="text-xs font-semibold text-rose-600 border border-rose-100 bg-rose-50/50 p-3 rounded-xl">
+                    No registered vendors available. Please onboard a vendor first in the Vendor Registry.
+                  </div>
+                ) : (
+                  <select
+                    required
+                    value={inwardVendor}
+                    onChange={(e) => setInwardVendor(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs font-semibold focus:border-indigo-600 outline-none"
+                  >
+                    <option value="">Select Vendor...</option>
+                    {vendors.map((v) => (
+                      <option key={v.id} value={v.name}>
+                        {v.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -609,7 +950,8 @@ export function StoreManagerPages({
 
               <button
                 type="submit"
-                className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-indigo-600 py-3 text-xs font-bold text-white shadow-md shadow-indigo-600/10 hover:bg-slate-900 transition"
+                disabled={vendors.length === 0}
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-indigo-600 py-3 text-xs font-bold text-white shadow-md shadow-indigo-600/10 hover:bg-slate-900 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Send className="h-4 w-4" /> Submit for Admin Sanction
               </button>
@@ -622,14 +964,39 @@ export function StoreManagerPages({
             <div className="overflow-x-auto text-sm font-medium">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">SKU Code</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Item Name</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Warehouse Stocks</th>
+                  <tr className="border-b border-slate-100 select-none">
+                    <th
+                      onClick={() => toggleWarehouseStockSort('sku')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      SKU Code{renderSortIndicator('sku', warehouseStockSortKey, warehouseStockSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => toggleWarehouseStockSort('name')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      Item Name{renderSortIndicator('name', warehouseStockSortKey, warehouseStockSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => toggleWarehouseStockSort('qty')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      Warehouse Stocks{renderSortIndicator('qty', warehouseStockSortKey, warehouseStockSortAsc)}
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {inventory.map((i) => {
+                  {[...inventory].sort((a, b) => {
+                    let comparison = 0;
+                    if (warehouseStockSortKey === 'sku') {
+                      comparison = a.skuId.localeCompare(b.skuId);
+                    } else if (warehouseStockSortKey === 'name') {
+                      comparison = getSku(skus, a.skuId).name.localeCompare(getSku(skus, b.skuId).name);
+                    } else if (warehouseStockSortKey === 'qty') {
+                      comparison = a.qty - b.qty;
+                    }
+                    return warehouseStockSortAsc ? comparison : -comparison;
+                  }).map((i) => {
                     const sk = getSku(skus, i.skuId);
                     const isLow = i.qty <= sk.lowStockAlert;
                     return (
@@ -747,25 +1114,92 @@ export function StoreManagerPages({
           <div className="overflow-x-auto text-sm font-medium">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-100">
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Receipt ID</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Date</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Product SKU</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Item Name</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Qty</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Unit Price</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Vendor / Supplier</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Invoice No</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Approval Status</th>
+                <tr className="border-b border-slate-100 select-none">
+                  <th
+                    onClick={() => toggleReceiptsSort('id')}
+                    className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    Receipt ID{renderSortIndicator('id', receiptsSortKey, receiptsSortAsc)}
+                  </th>
+                  <th
+                    onClick={() => toggleReceiptsSort('date')}
+                    className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    Date{renderSortIndicator('date', receiptsSortKey, receiptsSortAsc)}
+                  </th>
+                  <th
+                    onClick={() => toggleReceiptsSort('sku')}
+                    className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    Product SKU{renderSortIndicator('sku', receiptsSortKey, receiptsSortAsc)}
+                  </th>
+                  <th
+                    onClick={() => toggleReceiptsSort('name')}
+                    className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    Item Name{renderSortIndicator('name', receiptsSortKey, receiptsSortAsc)}
+                  </th>
+                  <th
+                    onClick={() => toggleReceiptsSort('qty')}
+                    className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    Qty{renderSortIndicator('qty', receiptsSortKey, receiptsSortAsc)}
+                  </th>
+                  <th
+                    onClick={() => toggleReceiptsSort('price')}
+                    className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    Unit Price{renderSortIndicator('price', receiptsSortKey, receiptsSortAsc)}
+                  </th>
+                  <th
+                    onClick={() => toggleReceiptsSort('vendor')}
+                    className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    Vendor / Supplier{renderSortIndicator('vendor', receiptsSortKey, receiptsSortAsc)}
+                  </th>
+                  <th
+                    onClick={() => toggleReceiptsSort('invoice')}
+                    className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    Invoice No{renderSortIndicator('invoice', receiptsSortKey, receiptsSortAsc)}
+                  </th>
+                  <th
+                    onClick={() => toggleReceiptsSort('status')}
+                    className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    Approval Status{renderSortIndicator('status', receiptsSortKey, receiptsSortAsc)}
+                  </th>
                   <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredInwards.map((p) => (
+                {[...filteredInwards].sort((a, b) => {
+                  let comparison = 0;
+                  if (receiptsSortKey === 'id') {
+                    comparison = a.id.localeCompare(b.id);
+                  } else if (receiptsSortKey === 'date') {
+                    comparison = a.date.localeCompare(b.date);
+                  } else if (receiptsSortKey === 'sku') {
+                    comparison = a.skuId.localeCompare(b.skuId);
+                  } else if (receiptsSortKey === 'name') {
+                    comparison = getSku(skus, a.skuId).name.localeCompare(getSku(skus, b.skuId).name);
+                  } else if (receiptsSortKey === 'qty') {
+                    comparison = a.qty - b.qty;
+                  } else if (receiptsSortKey === 'price') {
+                    comparison = a.unitPrice - b.unitPrice;
+                  } else if (receiptsSortKey === 'vendor') {
+                    comparison = a.vendor.localeCompare(b.vendor);
+                  } else if (receiptsSortKey === 'invoice') {
+                    comparison = a.invoiceNo.localeCompare(b.invoiceNo);
+                  } else if (receiptsSortKey === 'status') {
+                    comparison = a.status.localeCompare(b.status);
+                  }
+                  return receiptsSortAsc ? comparison : -comparison;
+                }).map((p) => (
                   <tr key={p.id} className="hover:bg-slate-50/50">
                     <td className="py-2.5 px-3 text-xs text-slate-400">{p.id}</td>
                     <td className="py-2.5 px-3 text-slate-500">{fmtDate(p.date)}</td>
-                    <td className="py-2.5 px-3"><span className="font-mono text-xs bg-slate-100 rounded px-1.5 py-0.5">{p.skuId}</span></td>
+                    <td className="py-2.5 px-3"><span className="font-mono text-xs bg-slate-150 rounded px-1.5 py-0.5">{p.skuId}</span></td>
                     <td className="py-2.5 px-3 text-slate-900">{getSku(skus, p.skuId).name}</td>
                     <td className="py-2.5 px-3 font-semibold text-slate-800">+{p.qty}</td>
                     <td className="py-2.5 px-3 text-slate-600">{fmtCur(p.unitPrice)}</td>
@@ -1036,14 +1470,49 @@ export function StoreManagerPages({
             <div className="overflow-x-auto text-sm font-medium">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Request ID</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Engineer Profile</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">SKU Code</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Item Description</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Qty</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Date Processed</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Status</th>
+                  <tr className="border-b border-slate-100 select-none">
+                    <th
+                      onClick={() => toggleDispatchSort('id')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      Request ID{renderSortIndicator('id', dispatchSortKey, dispatchSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => toggleDispatchSort('engineer')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      Engineer Profile{renderSortIndicator('engineer', dispatchSortKey, dispatchSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => toggleDispatchSort('sku')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      SKU Code{renderSortIndicator('sku', dispatchSortKey, dispatchSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => toggleDispatchSort('name')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      Item Description{renderSortIndicator('name', dispatchSortKey, dispatchSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => toggleDispatchSort('reqQty')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      Qty{renderSortIndicator('reqQty', dispatchSortKey, dispatchSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => toggleDispatchSort('date')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      Date Processed{renderSortIndicator('date', dispatchSortKey, dispatchSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => toggleDispatchSort('status')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      Status{renderSortIndicator('status', dispatchSortKey, dispatchSortAsc)}
+                    </th>
                     <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400" style={{ textAlign: 'right' }}>Van Recall</th>
                   </tr>
                 </thead>
@@ -1055,7 +1524,27 @@ export function StoreManagerPages({
                       </td>
                     </tr>
                   ) : (
-                    filteredProcessedRequests.map((r) => {
+                    [...filteredProcessedRequests].sort((a, b) => {
+                      let comparison = 0;
+                      const aEng = getUser(users, a.engEmail);
+                      const bEng = getUser(users, b.engEmail);
+                      if (dispatchSortKey === 'id') {
+                        comparison = a.id.localeCompare(b.id);
+                      } else if (dispatchSortKey === 'engineer') {
+                        comparison = aEng.name.localeCompare(bEng.name) || a.engEmail.localeCompare(b.engEmail);
+                      } else if (dispatchSortKey === 'date') {
+                        comparison = a.date.localeCompare(b.date);
+                      } else if (dispatchSortKey === 'name') {
+                        comparison = getSku(skus, a.skuId).name.localeCompare(getSku(skus, b.skuId).name);
+                      } else if (dispatchSortKey === 'reqQty') {
+                        comparison = a.qty - b.qty;
+                      } else if (dispatchSortKey === 'sku') {
+                        comparison = a.skuId.localeCompare(b.skuId);
+                      } else if (dispatchSortKey === 'status') {
+                        comparison = a.status.localeCompare(b.status);
+                      }
+                      return dispatchSortAsc ? comparison : -comparison;
+                    }).map((r) => {
                       const isApproved = r.status === 'Approved';
                       return (
                       <tr key={r.id} className="hover:bg-slate-50/50">
@@ -1116,19 +1605,74 @@ export function StoreManagerPages({
               <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm overflow-x-auto text-sm font-medium">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-100">
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Request ID</th>
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Engineer</th>
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">SKU Code</th>
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Item Name</th>
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Qty returning</th>
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Date</th>
-                      <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Status</th>
+                    <tr className="border-b border-slate-100 select-none">
+                      <th
+                        onClick={() => toggleReturnSort('id')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Request ID{renderSortIndicator('id', returnSortKey, returnSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleReturnSort('engineer')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Engineer{renderSortIndicator('engineer', returnSortKey, returnSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleReturnSort('sku')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        SKU Code{renderSortIndicator('sku', returnSortKey, returnSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleReturnSort('name')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Item Name{renderSortIndicator('name', returnSortKey, returnSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleReturnSort('qty')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Qty returning{renderSortIndicator('qty', returnSortKey, returnSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleReturnSort('date')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Date{renderSortIndicator('date', returnSortKey, returnSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleReturnSort('status')}
+                        className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Status{renderSortIndicator('status', returnSortKey, returnSortAsc)}
+                      </th>
                       <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-700">
-                    {filteredReturnRequests.map((r) => {
+                    {[...filteredReturnRequests].sort((a, b) => {
+                      let comparison = 0;
+                      const aEng = getUser(users, a.engEmail);
+                      const bEng = getUser(users, b.engEmail);
+                      if (returnSortKey === 'id') {
+                        comparison = a.id.localeCompare(b.id);
+                      } else if (returnSortKey === 'engineer') {
+                        comparison = aEng.name.localeCompare(bEng.name) || a.engEmail.localeCompare(b.engEmail);
+                      } else if (returnSortKey === 'date') {
+                        comparison = a.date.localeCompare(b.date);
+                      } else if (returnSortKey === 'name') {
+                        comparison = getSku(skus, a.skuId).name.localeCompare(getSku(skus, b.skuId).name);
+                      } else if (returnSortKey === 'qty') {
+                        comparison = a.qty - b.qty;
+                      } else if (returnSortKey === 'sku') {
+                        comparison = a.skuId.localeCompare(b.skuId);
+                      } else if (returnSortKey === 'status') {
+                        comparison = a.status.localeCompare(b.status);
+                      }
+                      return returnSortAsc ? comparison : -comparison;
+                    }).map((r) => {
                       const engUser = getUser(users, r.engEmail);
                       const details = getSku(skus, r.skuId);
                       return (
@@ -1201,13 +1745,57 @@ export function StoreManagerPages({
       ['Claim forwarded', 'Claim approved', 'Rejected'].includes(lp.status)
     );
 
+    const query = lpClaimsSearchQuery.toLowerCase().trim();
+    const filteredClaimsPending = claimsPending.filter((lp) => {
+      if (!query) return true;
+      const jobIdMatch = lp.jobId.toLowerCase().includes(query);
+      const descMatch = lp.description ? lp.description.toLowerCase().includes(query) : false;
+      return jobIdMatch || descMatch;
+    });
+    const filteredClaimsProcessed = claimsProcessed.filter((lp) => {
+      if (!query) return true;
+      const jobIdMatch = lp.jobId.toLowerCase().includes(query);
+      const descMatch = lp.description ? lp.description.toLowerCase().includes(query) : false;
+      return jobIdMatch || descMatch;
+    });
+
     const handleValidateClaim = (id: string) => {
+      const enteredPo = (selectedPONumbers[id] || '').trim();
+      if (!enteredPo) {
+        onAddToast('Please associate a registered PO Number before validating.', 'error');
+        return;
+      }
+      const matchedPO = purchaseOrders.find(
+        (po) => po.poNumber.toLowerCase() === enteredPo.toLowerCase()
+      );
+      if (!matchedPO) {
+        onAddToast(`The PO number "${enteredPo}" is not registered in the PO Tracker. Please enter a registered PO number.`, 'error');
+        return;
+      }
+      const poNum = matchedPO.poNumber;
+      const rawVal = poReceivedValues[id];
+      if (rawVal === undefined || rawVal.trim() === '') {
+        onAddToast('Please enter a PO Received Value.', 'error');
+        return;
+      }
+      const parsedVal = parseFloat(rawVal);
+      if (isNaN(parsedVal) || parsedVal < 0) {
+        onAddToast('Please enter a valid, non-negative PO Received Value.', 'error');
+        return;
+      }
       const updated = lpRequests.map((lp) => {
-        if (lp.id === id) return { ...lp, status: 'Claim forwarded' as const };
+        if (lp.id === id) {
+          return { 
+            ...lp, 
+            status: 'Claim forwarded' as const,
+            poNumber: poNum,
+            poReceivedValue: parsedVal
+          };
+        }
         return lp;
       });
       onUpdateLpRequests(updated);
-      onAddToast(`Claim ${id} validated successfully and forwarded to Admin for final approval.`, 'success');
+      onAddToast(`Claim ${id} validated successfully with PO Received Value ${fmtCur(parsedVal)} and linked to PO ${poNum}.`, 'success');
     };
 
     const handleRejectClaim = (id: string) => {
@@ -1221,11 +1809,23 @@ export function StoreManagerPages({
 
     const downloadLPClaimsCSV = (type: 'pending' | 'ledger') => {
       const list = type === 'pending' ? claimsPending : claimsProcessed;
-      const header = ['ID', 'Job ID', 'Supervisor Name', 'Supervisor Email', 'Date', 'Spare Cost (INR)', 'Service Cost (INR)', 'Total Cost (INR)', 'Status'];
+      const header = ['ID', 'Job ID', 'Linked PO Number', 'PO Received Value (INR)', 'Supervisor Name', 'Supervisor Email', 'Date', 'Spare Cost (INR)', 'Service Cost (INR)', 'Total Cost (INR)', 'Status'];
       const rows = list.map((lp) => {
         const u = getUser(users, lp.tlEmail);
         const total = lp.spareCost + lp.serviceCost;
-        return [lp.id, lp.jobId, u.name, lp.tlEmail, lp.date, lp.spareCost, lp.serviceCost, total, lp.status];
+        return [
+          lp.id, 
+          lp.jobId, 
+          lp.poNumber || 'N/A', 
+          lp.poReceivedValue !== undefined ? lp.poReceivedValue : 0,
+          u.name, 
+          lp.tlEmail, 
+          lp.date, 
+          lp.spareCost, 
+          lp.serviceCost, 
+          total, 
+          lp.status
+        ];
       });
 
       const csvContent = 'data:text/csv;charset=utf-8,' + [header.join(','), ...rows.map((e) => e.map((val) => `"${val}"`).join(','))].join('\n');
@@ -1295,6 +1895,18 @@ export function StoreManagerPages({
           </div>
         </div>
 
+        {/* Interactive Search Controls */}
+        <div className="relative">
+          <Search className="absolute left-3.5 top-3 h-3.5 w-3.5 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search claims by Job ID or Description..."
+            value={lpClaimsSearchQuery}
+            onChange={(e) => setLpClaimsSearchQuery(e.target.value)}
+            className="w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 py-2.5 text-xs font-semibold focus:border-indigo-600 focus:ring-4 focus:ring-indigo-150 outline-none transition"
+          />
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* Main Action Area (Pending Validation) */}
           <div className="lg:col-span-6 space-y-4">
@@ -1305,8 +1917,13 @@ export function StoreManagerPages({
                 <p className="font-bold text-xs">Awaiting Claims from Team Leaders</p>
                 <p className="text-[11px] text-slate-400">All submitted claims are validated and forwarded successfully.</p>
               </div>
+            ) : filteredClaimsPending.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/20 p-8 text-center text-slate-400 space-y-2">
+                <p className="font-bold text-xs">No matching pending claims found</p>
+                <p className="text-[11px] text-slate-400">Try modifying your search term.</p>
+              </div>
             ) : (
-              claimsPending.map((lp) => {
+              filteredClaimsPending.map((lp) => {
                 const totalCost = lp.spareCost + lp.serviceCost;
                 return (
                   <div key={lp.id} className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm space-y-4 hover:border-slate-300 transition">
@@ -1352,6 +1969,32 @@ export function StoreManagerPages({
                       </div>
                     )}
 
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Associate Registered PO</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. PO-123"
+                          value={selectedPONumbers[lp.id] || ''}
+                          onChange={(e) => setSelectedPONumbers(prev => ({ ...prev, [lp.id]: e.target.value }))}
+                          className="w-full text-xs font-semibold rounded-xl border border-slate-200 bg-white py-2.5 px-3 outline-none transition focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">PO Received Value (INR)</label>
+                        <input
+                          type="number"
+                          placeholder="e.g. 15000"
+                          min="0"
+                          step="any"
+                          value={poReceivedValues[lp.id] || ''}
+                          onChange={(e) => setPoReceivedValues(prev => ({ ...prev, [lp.id]: e.target.value }))}
+                          className="w-full text-xs font-semibold rounded-xl border border-slate-200 bg-white py-2.5 px-3 outline-none transition focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100"
+                        />
+                      </div>
+                    </div>
+
                     <div className="flex gap-2">
                       <button
                         onClick={() => handleRejectClaim(lp.id)}
@@ -1380,11 +2023,31 @@ export function StoreManagerPages({
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
-                    <tr className="border-b border-slate-100">
-                      <th className="py-2.5 px-2 text-slate-400 font-bold tracking-wider">ID</th>
-                      <th className="py-2.5 px-2 text-slate-400 font-bold tracking-wider">TL / Job ID</th>
-                      <th className="py-2.5 px-2 text-slate-400 font-bold tracking-wider">Total Cost</th>
-                      <th className="py-2.5 px-2 text-slate-400 font-bold tracking-wider">Status</th>
+                    <tr className="border-b border-slate-100 select-none">
+                      <th
+                        onClick={() => toggleClaimsSort('id')}
+                        className="py-2.5 px-2 text-slate-400 font-bold tracking-wider cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        ID{renderSortIndicator('id', claimsSortKey, claimsSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleClaimsSort('tlJob')}
+                        className="py-2.5 px-2 text-slate-400 font-bold tracking-wider cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        TL / Job ID{renderSortIndicator('tlJob', claimsSortKey, claimsSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleClaimsSort('cost')}
+                        className="py-2.5 px-2 text-slate-400 font-bold tracking-wider cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Total Cost{renderSortIndicator('cost', claimsSortKey, claimsSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleClaimsSort('status')}
+                        className="py-2.5 px-2 text-slate-400 font-bold tracking-wider cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Status{renderSortIndicator('status', claimsSortKey, claimsSortAsc)}
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
@@ -1394,8 +2057,28 @@ export function StoreManagerPages({
                           No processed claims history located.
                         </td>
                       </tr>
+                    ) : filteredClaimsProcessed.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="text-center py-8 text-slate-400 bg-slate-50/20 rounded-xl">
+                          No matching processed claims found.
+                        </td>
+                      </tr>
                     ) : (
-                      claimsProcessed.map((lp) => {
+                      [...filteredClaimsProcessed].sort((a, b) => {
+                        let comparison = 0;
+                        const aTL = getUser(users, a.tlEmail);
+                        const bTL = getUser(users, b.tlEmail);
+                        if (claimsSortKey === 'id') {
+                          comparison = a.id.localeCompare(b.id);
+                        } else if (claimsSortKey === 'tlJob') {
+                          comparison = aTL.name.localeCompare(bTL.name) || a.jobId.localeCompare(b.jobId);
+                        } else if (claimsSortKey === 'cost') {
+                          comparison = (a.spareCost + a.serviceCost) - (b.spareCost + b.serviceCost);
+                        } else if (claimsSortKey === 'status') {
+                          comparison = a.status.localeCompare(b.status);
+                        }
+                        return claimsSortAsc ? comparison : -comparison;
+                      }).map((lp) => {
                         const total = lp.spareCost + lp.serviceCost;
                         return (
                           <tr key={lp.id} className="hover:bg-slate-50/40">
@@ -1404,6 +2087,11 @@ export function StoreManagerPages({
                               <div>
                                 <span className="block text-slate-955">{getUser(users, lp.tlEmail).name}</span>
                                 <span className="block text-[10px] text-slate-400 uppercase font-bold tracking-wider">{lp.jobId}</span>
+                                {lp.poNumber && (
+                                  <span className="block text-[10px] text-indigo-600 font-bold mt-0.5">
+                                    Linked PO: {lp.poNumber} {lp.poReceivedValue !== undefined && `(Received: ${fmtCur(lp.poReceivedValue)})`}
+                                  </span>
+                                )}
                                 {lp.description && (
                                   <span className="block text-[10px] text-slate-400 font-normal truncate max-w-xs" title={lp.description}>
                                     {lp.description}
@@ -1599,17 +2287,63 @@ export function StoreManagerPages({
               <div className="overflow-x-auto text-sm font-medium">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-100">
-                      <th className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400">SKU Code</th>
-                      <th className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400">Product Title</th>
-                      <th className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400">Warehouse Stock</th>
-                      <th className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400">Min Stock Limit</th>
-                      <th className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400">Unit Cost</th>
-                      <th className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400" style={{ textAlign: 'right' }}>Capital Valuation (₹)</th>
+                    <tr className="border-b border-slate-100 select-none">
+                      <th
+                        onClick={() => toggleWarehouseStockSort('sku')}
+                        className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        SKU Code{renderSortIndicator('sku', warehouseStockSortKey, warehouseStockSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleWarehouseStockSort('name')}
+                        className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Product Title{renderSortIndicator('name', warehouseStockSortKey, warehouseStockSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleWarehouseStockSort('qty')}
+                        className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Warehouse Stock{renderSortIndicator('qty', warehouseStockSortKey, warehouseStockSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleWarehouseStockSort('limit')}
+                        className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Min Stock Limit{renderSortIndicator('limit', warehouseStockSortKey, warehouseStockSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleWarehouseStockSort('price')}
+                        className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Unit Cost{renderSortIndicator('price', warehouseStockSortKey, warehouseStockSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleWarehouseStockSort('value')}
+                        className="py-3 px-4 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors text-right"
+                      >
+                        Capital Valuation (₹){renderSortIndicator('value', warehouseStockSortKey, warehouseStockSortAsc)}
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {inventory.map((i) => {
+                    {[...inventory].sort((a, b) => {
+                      let comparison = 0;
+                      if (warehouseStockSortKey === 'sku') {
+                        comparison = a.skuId.localeCompare(b.skuId);
+                      } else if (warehouseStockSortKey === 'name') {
+                        comparison = getSku(skus, a.skuId).name.localeCompare(getSku(skus, b.skuId).name);
+                      } else if (warehouseStockSortKey === 'qty') {
+                        comparison = a.qty - b.qty;
+                      } else if (warehouseStockSortKey === 'limit') {
+                        comparison = getSku(skus, a.skuId).lowStockAlert - getSku(skus, b.skuId).lowStockAlert;
+                      } else if (warehouseStockSortKey === 'price') {
+                        comparison = a.unitPrice - b.unitPrice;
+                      } else if (warehouseStockSortKey === 'value') {
+                        comparison = (a.qty * a.unitPrice) - (b.qty * b.unitPrice);
+                      }
+                      return warehouseStockSortAsc ? comparison : -comparison;
+                    }).map((i) => {
                       const sk = getSku(skus, i.skuId);
                       const isLow = i.qty <= sk.lowStockAlert;
                       const value = i.qty * i.unitPrice;
@@ -1858,16 +2592,24 @@ export function StoreManagerPages({
               filteredSmPendingList.map((l) => {
                 const totalRevenue = l.accessories.reduce((sum, item) => sum + (item.saleValue || 0), 0);
                 const engineer = getUser(users, l.engEmail);
+                const isLeave = l.attendanceStatus === 'Leave';
                 return (
-                  <div key={l.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs space-y-4 animate-fadeIn">
+                  <div key={l.id} className={`rounded-2xl border p-5 shadow-xs space-y-4 animate-fadeIn transition ${isLeave ? 'border-amber-250 bg-amber-50/20 shadow-amber-50/5' : 'border-slate-200 bg-white'}`}>
                     <div className="flex justify-between items-start">
                       <div>
                         <span className="font-mono text-[11px] font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-md block w-fit mb-1">
                           {l.id}
                         </span>
-                        <h3 className="font-display text-sm font-extrabold text-slate-900">
-                          {engineer.name}
-                        </h3>
+                        <div className="flex items-center flex-wrap gap-2">
+                          <h3 className="font-display text-sm font-extrabold text-slate-900">
+                            {engineer.name}
+                          </h3>
+                          {isLeave && (
+                            <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 border border-amber-200 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-amber-800 animate-pulse">
+                              Leave Marked
+                            </span>
+                          )}
+                        </div>
                         <span className="text-xs text-slate-450 block">{engineer.email}</span>
                       </div>
                       <div className="text-right flex flex-col items-end gap-1.5">
@@ -1883,44 +2625,52 @@ export function StoreManagerPages({
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-4 gap-2 bg-slate-50/50 rounded-xl p-3 border border-slate-100/75 text-center">
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Calls Closed</span>
-                        <strong className="text-sm font-extrabold text-slate-805">{l.callsClosed} jobs</strong>
+                    {isLeave ? (
+                      <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-4 text-xs font-semibold text-amber-900 text-center leading-relaxed">
+                        📅 Engineer marked Leave for this date. No performance metrics or accessories are logged.
                       </div>
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">RCP Collected</span>
-                        <strong className="text-sm font-extrabold text-emerald-700">{fmtCur(l.rcpCollected || 0)}</strong>
-                      </div>
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">RCP Qty</span>
-                        <strong className="text-sm font-extrabold text-amber-750">{l.rcpQty || 0}</strong>
-                      </div>
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Acc. Revenue</span>
-                        <strong className="text-sm font-extrabold text-indigo-750">{fmtCur(totalRevenue)}</strong>
-                      </div>
-                    </div>
-
-                    {/* Accessories Detailed List */}
-                    <div className="space-y-1.5 pt-1">
-                      <span className="text-xs font-bold text-slate-500 block">Accessories Logged:</span>
-                      {l.accessories.length === 0 ? (
-                        <p className="text-xs text-slate-400 italic">No accessories reported.</p>
-                      ) : (
-                        <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
-                          {l.accessories.map((a, idx) => {
-                            const skuDetails = getSku(skus, a.skuId);
-                            return (
-                              <div key={`${a.skuId}-${idx}`} className="flex justify-between items-center bg-slate-50 p-1.5 rounded-lg border border-slate-100 text-xs">
-                                <span className="font-semibold text-slate-800">{skuDetails.name}</span>
-                                <span className="font-bold text-slate-900">{a.qty} units × {fmtCur(a.saleValue)}</span>
-                              </div>
-                            );
-                          })}
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-4 gap-2 bg-slate-50/50 rounded-xl p-3 border border-slate-100/75 text-center">
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Calls Closed</span>
+                            <strong className="text-sm font-extrabold text-slate-850">{l.callsClosed} jobs</strong>
+                          </div>
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">RCP Collected</span>
+                            <strong className="text-sm font-extrabold text-emerald-700">{fmtCur(l.rcpCollected || 0)}</strong>
+                          </div>
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">RCP Qty</span>
+                            <strong className="text-sm font-extrabold text-amber-750">{l.rcpQty || 0}</strong>
+                          </div>
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Acc. Revenue</span>
+                            <strong className="text-sm font-extrabold text-indigo-750">{fmtCur(totalRevenue)}</strong>
+                          </div>
                         </div>
-                      )}
-                    </div>
+
+                        {/* Accessories Detailed List */}
+                        <div className="space-y-1.5 pt-1">
+                          <span className="text-xs font-bold text-slate-500 block">Accessories Logged:</span>
+                          {l.accessories.length === 0 ? (
+                            <p className="text-xs text-slate-400 italic">No accessories reported.</p>
+                          ) : (
+                            <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
+                              {l.accessories.map((a, idx) => {
+                                const skuDetails = getSku(skus, a.skuId);
+                                return (
+                                  <div key={`${a.skuId}-${idx}`} className="flex justify-between items-center bg-slate-50 p-1.5 rounded-lg border border-slate-100 text-xs">
+                                    <span className="font-semibold text-slate-800">{skuDetails.name}</span>
+                                    <span className="font-bold text-slate-900">{a.qty} units × {fmtCur(a.saleValue)}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
 
                     {l.tlNote && (
                       <div className="text-xs bg-indigo-50 border border-indigo-100/50 text-indigo-950 p-2.5 rounded-xl font-semibold">
@@ -1976,14 +2726,49 @@ export function StoreManagerPages({
             <div className="overflow-x-auto text-sm font-medium">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">ID</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Engineer</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Log Date</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Calls Closed</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">RCP Collected</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">RCP Qty</th>
-                    <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Status</th>
+                  <tr className="border-b border-slate-100 select-none">
+                    <th
+                      onClick={() => toggleProcessedValidationSort('id')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      ID{renderSortIndicator('id', processedValidationSortKey, processedValidationSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => toggleProcessedValidationSort('engineer')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      Engineer{renderSortIndicator('engineer', processedValidationSortKey, processedValidationSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => toggleProcessedValidationSort('date')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      Log Date{renderSortIndicator('date', processedValidationSortKey, processedValidationSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => toggleProcessedValidationSort('calls')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      Calls Closed{renderSortIndicator('calls', processedValidationSortKey, processedValidationSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => toggleProcessedValidationSort('rcp')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      RCP Collected{renderSortIndicator('rcp', processedValidationSortKey, processedValidationSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => toggleProcessedValidationSort('rcpQty')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      RCP Qty{renderSortIndicator('rcpQty', processedValidationSortKey, processedValidationSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => toggleProcessedValidationSort('status')}
+                      className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      Status{renderSortIndicator('status', processedValidationSortKey, processedValidationSortAsc)}
+                    </th>
                     <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Feedback Notes</th>
                   </tr>
                 </thead>
@@ -1995,16 +2780,57 @@ export function StoreManagerPages({
                       </td>
                     </tr>
                   ) : (
-                    filteredSmDoneList.map((d) => (
-                      <tr key={d.id} className="hover:bg-slate-50/50">
-                        <td className="py-3 px-3">
-                          <span className="font-mono text-xs text-slate-650 bg-slate-100 px-2 py-0.5 rounded-md">{d.id}</span>
-                        </td>
-                        <td className="py-3 px-3 font-bold text-slate-900">{getUser(users, d.engEmail).name}</td>
-                        <td className="py-3 px-3 text-slate-500">{fmtDate(d.date)}</td>
-                        <td className="py-3 px-3 font-semibold text-slate-800">{d.callsClosed} calls</td>
-                        <td className="py-3 px-3 text-slate-900 font-semibold">{fmtCur(d.rcpCollected || 0)}</td>
-                        <td className="py-3 px-3 font-bold text-slate-800">{d.rcpQty || 0}</td>
+                    [...filteredSmDoneList].sort((a, b) => {
+                      let comparison = 0;
+                      const aEng = getUser(users, a.engEmail);
+                      const bEng = getUser(users, b.engEmail);
+                      if (processedValidationSortKey === 'id') {
+                        comparison = a.id.localeCompare(b.id);
+                      } else if (processedValidationSortKey === 'engineer') {
+                        comparison = aEng.name.localeCompare(bEng.name) || a.engEmail.localeCompare(b.engEmail);
+                      } else if (processedValidationSortKey === 'date') {
+                        comparison = a.date.localeCompare(b.date);
+                      } else if (processedValidationSortKey === 'calls') {
+                        comparison = a.callsClosed - b.callsClosed;
+                      } else if (processedValidationSortKey === 'rcp') {
+                        comparison = (a.rcpCollected || 0) - (b.rcpCollected || 0);
+                      } else if (processedValidationSortKey === 'rcpQty') {
+                        comparison = (a.rcpQty || 0) - (b.rcpQty || 0);
+                      } else if (processedValidationSortKey === 'status') {
+                        comparison = a.status.localeCompare(b.status);
+                      }
+                      return processedValidationSortAsc ? comparison : -comparison;
+                    }).map((d) => {
+                      const isLeave = d.attendanceStatus === 'Leave';
+                      return (
+                        <tr key={d.id} className={`hover:bg-slate-50/50 ${isLeave ? 'bg-amber-50/15' : ''}`}>
+                          <td className="py-3 px-3">
+                            <span className="font-mono text-xs text-slate-650 bg-slate-100 px-2 py-0.5 rounded-md">{d.id}</span>
+                          </td>
+                          <td className="py-3 px-3">
+                            <div className="flex items-center gap-2">
+                              <strong className="font-bold text-slate-900">{getUser(users, d.engEmail).name}</strong>
+                              {isLeave && (
+                                <span className="inline-flex items-center rounded bg-amber-100 border border-amber-200 px-1.5 py-0.2 text-[9px] font-black uppercase text-amber-800">
+                                  Leave
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3 px-3 text-slate-500">{fmtDate(d.date)}</td>
+                          <td className="py-3 px-3 font-semibold text-slate-800">
+                            {isLeave ? (
+                              <span className="text-amber-800 font-bold uppercase text-[10px]">Leave marked</span>
+                            ) : (
+                              `${d.callsClosed} calls`
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-slate-900 font-semibold">
+                            {isLeave ? <span className="text-slate-350 italic">—</span> : fmtCur(d.rcpCollected || 0)}
+                          </td>
+                          <td className="py-3 px-3 font-bold text-slate-800">
+                            {isLeave ? <span className="text-slate-350 italic">—</span> : d.rcpQty || 0}
+                          </td>
                         <td className="py-3 px-3">
                           <span
                             className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold border ${
@@ -2022,7 +2848,8 @@ export function StoreManagerPages({
                           {d.adminNote || '—'}
                         </td>
                       </tr>
-                    ))
+                    );
+                  })
                   )}
                 </tbody>
               </table>
@@ -2061,7 +2888,7 @@ export function StoreManagerPages({
       if (attStatusVal === 'Present') {
         cellClass += 'bg-emerald-50 border-emerald-300 text-emerald-950';
         statusIndicator = <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 self-center"></span>;
-      } else if (attStatusVal === 'Absent') {
+      } else if (attStatusVal === 'Absent' || attStatusVal === 'Leave') {
         cellClass += 'bg-amber-50 border-amber-250 text-amber-950';
         statusIndicator = <span className="h-1.5 w-1.5 rounded-full bg-amber-500 self-center"></span>;
       } else if (isPast && !attStatusVal && dateObj.getDay() !== 0) {
@@ -2087,7 +2914,7 @@ export function StoreManagerPages({
     ).length;
 
     const leaveCount = Object.entries(userAtt).filter(
-      ([date, val]) => date.substring(0, 7) === currentMonthPrefix && val === 'Absent'
+      ([date, val]) => date.substring(0, 7) === currentMonthPrefix && (val === 'Absent' || val === 'Leave')
     ).length;
 
     const pendingRequests = myAttendanceRequests.filter(req => req.approvedStatus === 'Pending').length;
@@ -2274,13 +3101,43 @@ export function StoreManagerPages({
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-100 text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
-                      <th className="py-3 px-3">Req ID</th>
-                      <th className="py-3 px-3">Staff Name</th>
-                      <th className="py-3 px-3">Date</th>
-                      <th className="py-3 px-3">Proposed Status</th>
-                      <th className="py-3 px-3">Remarks / Description</th>
-                      <th className="py-3 px-3">Approval status</th>
+                    <tr className="border-b border-slate-100 text-[11px] font-extrabold uppercase tracking-wider text-slate-400 select-none">
+                      <th
+                        onClick={() => toggleStoreAttendanceSort('id')}
+                        className="py-3 px-3 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Req ID{renderSortIndicator('id', storeAttendanceSortKey, storeAttendanceSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleStoreAttendanceSort('name')}
+                        className="py-3 px-3 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Staff Name{renderSortIndicator('name', storeAttendanceSortKey, storeAttendanceSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleStoreAttendanceSort('date')}
+                        className="py-3 px-3 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Date{renderSortIndicator('date', storeAttendanceSortKey, storeAttendanceSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleStoreAttendanceSort('proposed')}
+                        className="py-3 px-3 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Proposed Status{renderSortIndicator('proposed', storeAttendanceSortKey, storeAttendanceSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleStoreAttendanceSort('remarks')}
+                        className="py-3 px-3 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Remarks / Description{renderSortIndicator('remarks', storeAttendanceSortKey, storeAttendanceSortAsc)}
+                      </th>
+                      <th
+                        onClick={() => toggleStoreAttendanceSort('status')}
+                        className="py-3 px-3 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        Approval status{renderSortIndicator('status', storeAttendanceSortKey, storeAttendanceSortAsc)}
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2291,7 +3148,25 @@ export function StoreManagerPages({
                         </td>
                       </tr>
                     ) : (
-                      myAttendanceRequests.map((req) => {
+                      [...myAttendanceRequests].sort((a, b) => {
+                        let comparison = 0;
+                        const aEng = getUser(users, a.engEmail);
+                        const bEng = getUser(users, b.engEmail);
+                        if (storeAttendanceSortKey === 'id') {
+                          comparison = a.id.localeCompare(b.id);
+                        } else if (storeAttendanceSortKey === 'name') {
+                          comparison = aEng.name.localeCompare(bEng.name) || a.engEmail.localeCompare(b.engEmail);
+                        } else if (storeAttendanceSortKey === 'date') {
+                          comparison = a.date.localeCompare(b.date);
+                        } else if (storeAttendanceSortKey === 'proposed') {
+                          comparison = a.status.localeCompare(b.status);
+                        } else if (storeAttendanceSortKey === 'remarks') {
+                          comparison = (a.remarks || '').localeCompare(b.remarks || '');
+                        } else if (storeAttendanceSortKey === 'status') {
+                          comparison = a.approvedStatus.localeCompare(b.approvedStatus);
+                        }
+                        return storeAttendanceSortAsc ? comparison : -comparison;
+                      }).map((req) => {
                         const engineer = getUser(users, req.engEmail);
                         return (
                           <tr key={req.id} className="border-b border-slate-50 hover:bg-slate-50/30 text-sm">
@@ -2410,14 +3285,39 @@ export function StoreManagerPages({
             <div className="overflow-x-auto text-sm font-medium">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="py-2 px-3 text-xs font-bold tracking-widest text-slate-400">SKU Code</th>
-                    <th className="py-2 px-3 text-xs font-bold tracking-widest text-slate-400">Label Description</th>
-                    <th className="py-2 px-3 text-xs font-bold tracking-widest text-slate-400">Safety Level Limit</th>
+                  <tr className="border-b border-slate-100 select-none">
+                    <th
+                      onClick={() => toggleSkuCatalogueSort('sku')}
+                      className="py-2 px-3 text-xs font-bold tracking-widest text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      SKU Code{renderSortIndicator('sku', skuCatalogueSortKey, skuCatalogueSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => toggleSkuCatalogueSort('name')}
+                      className="py-2 px-3 text-xs font-bold tracking-widest text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      Label Description{renderSortIndicator('name', skuCatalogueSortKey, skuCatalogueSortAsc)}
+                    </th>
+                    <th
+                      onClick={() => toggleSkuCatalogueSort('limit')}
+                      className="py-2 px-3 text-xs font-bold tracking-widest text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      Safety Level Limit{renderSortIndicator('limit', skuCatalogueSortKey, skuCatalogueSortAsc)}
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-                  {skus.map((item) => (
+                  {[...skus].sort((a, b) => {
+                    let comparison = 0;
+                    if (skuCatalogueSortKey === 'sku') {
+                      comparison = a.id.localeCompare(b.id);
+                    } else if (skuCatalogueSortKey === 'name') {
+                      comparison = a.name.localeCompare(b.name);
+                    } else if (skuCatalogueSortKey === 'limit') {
+                      comparison = a.lowStockAlert - b.lowStockAlert;
+                    }
+                    return skuCatalogueSortAsc ? comparison : -comparison;
+                  }).map((item) => (
                     <tr key={item.id} className="hover:bg-slate-50/50">
                       <td className="py-3 px-3"><span className="font-mono text-xs font-bold text-indigo-750 bg-indigo-50 border border-indigo-150 rounded px-1.5 py-0.5">{item.id}</span></td>
                       <td className="py-3 px-3 font-semibold text-slate-900">{item.name}</td>
@@ -2433,5 +3333,495 @@ export function StoreManagerPages({
     );
   }
 
+  if (activeTab === 'store-po-tracker') {
+    return (
+      <POTrackerView
+        currentUser={currentUser}
+        purchaseOrders={purchaseOrders}
+        onUpdatePurchaseOrders={onUpdatePurchaseOrders}
+        onAddToast={onAddToast}
+        mode="Store Manager"
+      />
+    );
+  }
+
+  if (activeTab === 'store-supplier-ledger') {
+    return (
+      <SupplierLedgerView
+        currentUser={currentUser}
+        purchaseInward={purchaseInward}
+        supplierDebits={supplierDebits}
+        onAddSupplierDebit={onAddSupplierDebit}
+        onAddToast={onAddToast}
+        mode="Store Manager"
+      />
+    );
+  }
+
+  if (activeTab === 'store-vendor-registry') {
+    return (
+      <StoreVendorRegistryView
+        vendors={vendors}
+        onAddVendor={onAddVendor}
+        onAddToast={onAddToast}
+      />
+    );
+  }
+
+  if (activeTab === 'store-sales') {
+    const filteredSales = salesRecords.filter(s => s.submittedBy === currentUser.email);
+    
+    const sortedSales = [...filteredSales].sort((a, b) => {
+      let comparison = 0;
+      const vendorA = vendors.find(v => v.id === a.vendorId)?.name || '';
+      const vendorB = vendors.find(v => v.id === b.vendorId)?.name || '';
+      const skuA = skus.find(s => s.id === a.skuId)?.name || '';
+      const skuB = skus.find(s => s.id === b.skuId)?.name || '';
+
+      if (salesSortKey === 'id') {
+        comparison = a.id.localeCompare(b.id);
+      } else if (salesSortKey === 'date') {
+        comparison = a.date.localeCompare(b.date);
+      } else if (salesSortKey === 'vendor') {
+        comparison = vendorA.localeCompare(vendorB);
+      } else if (salesSortKey === 'sku') {
+        comparison = skuA.localeCompare(skuB);
+      } else if (salesSortKey === 'qty') {
+        comparison = a.qty - b.qty;
+      } else if (salesSortKey === 'price') {
+        comparison = a.salePrice - b.salePrice;
+      } else if (salesSortKey === 'total') {
+        comparison = (a.qty * a.salePrice) - (b.qty * b.salePrice);
+      } else if (salesSortKey === 'status') {
+        comparison = a.status.localeCompare(b.status);
+      }
+
+      return salesSortAsc ? comparison : -comparison;
+    });
+
+    return (
+      <div className="space-y-6 animate-fadeIn">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h1 className="font-display text-2xl font-extrabold text-slate-955">B2B Sales Register</h1>
+            <p className="text-sm font-medium text-slate-400 font-sans">Record and submit customer or dealer B2B sales for Admin approval</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Sale Register Form */}
+          <div className="lg:col-span-1 rounded-2xl border border-slate-200/50 bg-white p-6 shadow-sm space-y-4">
+            <h2 className="font-display text-base font-extrabold text-slate-900 border-b border-slate-100 pb-3 font-sans">Register New Sale</h2>
+            <form onSubmit={handleSubmitSale} className="space-y-4 text-xs font-semibold text-slate-700">
+              <div className="flex flex-col gap-1.5">
+                <label>Date Raised *</label>
+                <input
+                  type="date"
+                  required
+                  value={saleDate}
+                  onChange={(e) => setSaleDate(e.target.value)}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-800 outline-none focus:border-indigo-650"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label>Vendor (Registered) *</label>
+                <select
+                  required
+                  value={saleVendorId}
+                  onChange={(e) => setSaleVendorId(e.target.value)}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-855 outline-none focus:border-indigo-650"
+                >
+                  <option value="">Select Vendor...</option>
+                  {vendors.map((v) => (
+                    <option key={v.id} value={v.id}>{v.name} ({v.id})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label>SKU Selection *</label>
+                <select
+                  required
+                  value={saleSkuId}
+                  onChange={(e) => setSaleSkuId(e.target.value)}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-855 outline-none focus:border-indigo-650"
+                >
+                  <option value="">Select SKU...</option>
+                  {skus.map((s) => {
+                    const invItem = inventory.find(i => i.skuId === s.id);
+                    const qtyAvailable = invItem ? invItem.qty : 0;
+                    return (
+                      <option key={s.id} value={s.id}>
+                        {s.name} (Stock: {qtyAvailable})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label>Quantity *</label>
+                  <input
+                    type="number"
+                    required
+                    min={1}
+                    value={saleQty || ''}
+                    onChange={(e) => setSaleQty(parseInt(e.target.value) || 0)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-800 outline-none focus:border-indigo-650"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label>Sale Price (₹) *</label>
+                  <input
+                    type="number"
+                    required
+                    min={1}
+                    value={salePrice || ''}
+                    onChange={(e) => setSalePrice(parseFloat(e.target.value) || 0)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-800 outline-none focus:border-indigo-650"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label>Reference Number *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. INV-1092, PO-88"
+                  value={saleRefNumber}
+                  onChange={(e) => setSaleRefNumber(e.target.value)}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-800 outline-none focus:border-indigo-650"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label>Description</label>
+                <textarea
+                  placeholder="Add sale notes..."
+                  value={saleDescription}
+                  onChange={(e) => setSaleDescription(e.target.value)}
+                  rows={3}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-800 outline-none focus:border-indigo-650 font-sans"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full inline-flex justify-center items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-slate-900 transition shadow-sm"
+              >
+                Submit and Deduct Stock
+              </button>
+            </form>
+          </div>
+
+          {/* Quick Stats Overview */}
+          <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 h-fit animate-fadeIn">
+            <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-5 shadow-xs space-y-1 animate-fadeIn">
+              <span className="text-xs font-bold tracking-wider text-indigo-500 uppercase block">Pending Approvals</span>
+              <div className="text-2xl font-black text-indigo-900">
+                {filteredSales.filter(s => s.status === 'Pending').length} requests
+              </div>
+              <p className="text-xs text-indigo-405 font-semibold">Awaiting Admin authorization</p>
+            </div>
+
+            <div className="rounded-2xl border border-teal-100 bg-teal-50/40 p-5 shadow-xs space-y-1 animate-fadeIn">
+              <span className="text-xs font-bold tracking-wider text-teal-600 uppercase block">Total Sales Value (MTD)</span>
+              <div className="text-2xl font-black text-teal-900">
+                {fmtCur(filteredSales.filter(s => s.status === 'Approved').reduce((sum, s) => sum + (s.qty * s.salePrice), 0))}
+              </div>
+              <p className="text-xs text-teal-505 font-semibold">
+                {filteredSales.filter(s => s.status === 'Approved').length} completed deliveries
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Sales History Table */}
+        <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-100 pb-4">
+            <div>
+              <h2 className="font-display text-base font-extrabold text-slate-955">REGISTERED B2B SALES HISTORY</h2>
+              <p className="text-xs text-slate-400 font-semibold">Track approvals and historical records of B2B sales</p>
+            </div>
+
+            <button
+              onClick={handleDownloadSalesCSV}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-650 transition"
+            >
+              <Download className="h-4 w-4" /> Export CSV
+            </button>
+          </div>
+
+          <div className="overflow-x-auto text-xs font-medium">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-100 select-none">
+                  <th
+                    onClick={() => handleSortSales('id')}
+                    className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors uppercase w-28"
+                  >
+                    Sale ID{renderSalesSortIndicator('id')}
+                  </th>
+                  <th
+                    onClick={() => handleSortSales('date')}
+                    className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors uppercase"
+                  >
+                    Date{renderSalesSortIndicator('date')}
+                  </th>
+                  <th
+                    onClick={() => handleSortSales('vendor')}
+                    className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors uppercase"
+                  >
+                    Vendor{renderSalesSortIndicator('vendor')}
+                  </th>
+                  <th
+                    onClick={() => handleSortSales('sku')}
+                    className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors uppercase"
+                  >
+                    SKU Item{renderSalesSortIndicator('sku')}
+                  </th>
+                  <th
+                    onClick={() => handleSortSales('qty')}
+                    className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors uppercase"
+                  >
+                    Qty{renderSalesSortIndicator('qty')}
+                  </th>
+                  <th
+                    onClick={() => handleSortSales('price')}
+                    className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors uppercase"
+                  >
+                    Price{renderSalesSortIndicator('price')}
+                  </th>
+                  <th
+                    onClick={() => handleSortSales('total')}
+                    className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors uppercase"
+                  >
+                    Total Value{renderSalesSortIndicator('total')}
+                  </th>
+                  <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
+                    Ref Number
+                  </th>
+                  <th
+                    onClick={() => handleSortSales('status')}
+                    className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors uppercase"
+                  >
+                    Status{renderSalesSortIndicator('status')}
+                  </th>
+                  <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
+                    Admin Note
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50 font-semibold text-slate-700">
+                {sortedSales.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="text-center py-8 text-slate-400">
+                      No sales records found.
+                    </td>
+                  </tr>
+                ) : (
+                  sortedSales.map((s) => {
+                    const vendor = vendors.find(v => v.id === s.vendorId);
+                    const sku = skus.find(sk => sk.id === s.skuId);
+                    return (
+                      <tr key={s.id} className="hover:bg-slate-50/50 transition">
+                        <td className="py-3 px-3 font-mono text-slate-505">{s.id}</td>
+                        <td className="py-3 px-3 text-slate-500">{fmtDate(s.date)}</td>
+                        <td className="py-3 px-3 text-slate-900">{vendor ? vendor.name : '—'}</td>
+                        <td className="py-3 px-3 text-slate-900">{sku ? sku.name : '—'}</td>
+                        <td className="py-3 px-3 text-slate-600">{s.qty} units</td>
+                        <td className="py-3 px-3 text-slate-700">{fmtCur(s.salePrice)}</td>
+                        <td className="py-3 px-3 text-indigo-650 font-bold">{fmtCur(s.qty * s.salePrice)}</td>
+                        <td className="py-3 px-3 text-slate-600">{s.refNumber}</td>
+                        <td className="py-3 px-3">
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold border ${
+                              s.status === 'Approved'
+                                ? 'bg-emerald-50 border-emerald-100 text-emerald-800'
+                                : s.status === 'Pending'
+                                ? 'bg-amber-50 border-amber-100 text-amber-800'
+                                : 'bg-rose-50 border-rose-200 text-rose-855'
+                            }`}
+                          >
+                            {s.status === 'Approved' ? 'Sales delivered' : s.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-slate-505 font-normal italic max-w-xs truncate" title={s.adminNote}>
+                          {s.adminNote || '—'}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return null;
+}
+
+interface StoreVendorRegistryViewProps {
+  vendors: Vendor[];
+  onAddVendor: (v: Vendor) => void;
+  onAddToast: (msg: string, type?: 'success' | 'error') => void;
+}
+
+function StoreVendorRegistryView({ vendors, onAddVendor, onAddToast }: StoreVendorRegistryViewProps) {
+  const [name, setName] = useState('');
+  const [contactPerson, setContactPerson] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      onAddToast('Vendor name is required.', 'error');
+      return;
+    }
+    
+    // Check for duplicate name
+    if (vendors.some((v) => v.name.toLowerCase() === name.trim().toLowerCase())) {
+      onAddToast('A vendor with this name is already registered.', 'error');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setTimeout(() => {
+      const newVendor: Vendor = {
+        id: genId('VN'),
+        name: name.trim(),
+        contactPerson: contactPerson.trim() || undefined,
+        phone: phone.trim() || undefined,
+        email: email.trim() || undefined,
+      };
+      onAddVendor(newVendor);
+      onAddToast(`Vendor "${newVendor.name}" registered successfully!`, 'success');
+      
+      // Reset form
+      setName('');
+      setContactPerson('');
+      setPhone('');
+      setEmail('');
+      setIsSubmitting(false);
+    }, 800);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="font-display text-2xl font-extrabold text-slate-950">Vendor Registry</h1>
+        <p className="text-sm font-medium text-slate-400">Onboard and manage suppliers/vendors for purchase inwards</p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Registration Form */}
+        <div className="lg:col-span-5 rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm h-fit">
+          <h2 className="font-display text-xs font-extrabold text-slate-950 uppercase tracking-wider mb-4 block">Register New Vendor</h2>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold tracking-wider text-slate-500 mb-1">Vendor Name *</label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. ABC Trading Co"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold focus:border-indigo-650 outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold tracking-wider text-slate-500 mb-1">Contact Person (Optional)</label>
+              <input
+                type="text"
+                placeholder="e.g. Rajesh Kumar"
+                value={contactPerson}
+                onChange={(e) => setContactPerson(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold focus:border-indigo-650 outline-none"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold tracking-wider text-slate-500 mb-1">Phone Number (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. +91 9876543210"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold focus:border-indigo-650 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold tracking-wider text-slate-500 mb-1">Email Address (Optional)</label>
+                <input
+                  type="email"
+                  placeholder="e.g. rajesh@abc.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold focus:border-indigo-650 outline-none"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-slate-900 text-white font-bold py-2.5 text-xs transition shadow-md shadow-indigo-600/10 cursor-pointer disabled:opacity-50"
+            >
+              {isSubmitting ? 'Registering...' : 'Register Vendor'}
+            </button>
+          </form>
+        </div>
+
+        {/* Vendors Directory List Table */}
+        <div className="lg:col-span-7 rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
+          <h2 className="font-display text-xs font-extrabold text-slate-950 uppercase tracking-wider mb-4 block">Registered Vendors Directory</h2>
+          
+          <div className="overflow-x-auto text-xs font-medium">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-100">
+                  <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase">Vendor ID</th>
+                  <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase">Vendor Name</th>
+                  <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase">Contact Person</th>
+                  <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase">Phone</th>
+                  <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase">Email</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50 font-semibold text-slate-700">
+                {vendors.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="text-center py-8 text-slate-400">
+                      No vendors registered yet.
+                    </td>
+                  </tr>
+                ) : (
+                  vendors.map((v) => (
+                    <tr key={v.id} className="hover:bg-slate-50/50 transition">
+                      <td className="py-3 px-3 font-mono text-slate-500">{v.id}</td>
+                      <td className="py-3 px-3 text-slate-900">{v.name}</td>
+                      <td className="py-3 px-3 text-slate-600">{v.contactPerson || '—'}</td>
+                      <td className="py-3 px-3 text-slate-600">{v.phone || '—'}</td>
+                      <td className="py-3 px-3 text-slate-600">{v.email || '—'}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }

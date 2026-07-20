@@ -4,8 +4,9 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { User, SKU, InventoryItem, ProductivityLog, AttendanceRecord, PurchaseInward, RevokeRequest, StockRequest, EngineerStock, LPRequest, AttendanceRequest } from '../types';
+import { User, SKU, InventoryItem, ProductivityLog, AttendanceRecord, PurchaseInward, RevokeRequest, StockRequest, EngineerStock, LPRequest, AttendanceRequest, PurchaseOrder, SupplierDebit, Vendor, SaleRecord } from '../types';
 import { getSku, getInvItem, getUser, fmtDate, fmtCur, genId, getSkuPurchaseUnitPrice, calcAccessoryCost, getMonthRange } from '../utils';
+import { SupplierLedgerView } from './SupplierLedgerView';
 import {
   FileText,
   CheckCircle,
@@ -36,6 +37,7 @@ import {
   Clock,
   X
 } from 'lucide-react';
+import { POTrackerView } from './POTrackerView';
 
 interface AdminPagesProps {
   currentUser: User;
@@ -47,11 +49,17 @@ interface AdminPagesProps {
   attendanceRequests?: AttendanceRequest[];
   onUpdateAttendanceRequests?: (reqs: AttendanceRequest[]) => void;
   purchaseInward: PurchaseInward[];
+  supplierDebits: SupplierDebit[];
+  onAddSupplierDebit: (sd: SupplierDebit) => void;
+  vendors?: Vendor[];
+  onAddVendor?: (v: Vendor) => void;
   revokeRequests: RevokeRequest[];
   stockRequests: StockRequest[];
   engineerStock: EngineerStock;
   lpRequests: LPRequest[];
   activeTab: string;
+  purchaseOrders: PurchaseOrder[];
+  onUpdatePurchaseOrders: (pos: PurchaseOrder[]) => void;
   onUpdateUsers: (u: User[]) => void;
   onUpdateSkus: (s: SKU[]) => void;
   onUpdateInventory: (i: InventoryItem[]) => void;
@@ -63,6 +71,9 @@ interface AdminPagesProps {
   onUpdateEngineerStock: (es: EngineerStock) => void;
   onUpdateLpRequests: (lp: LPRequest[]) => void;
   onAddToast: (msg: string, type?: 'success' | 'error') => void;
+  salesRecords: SaleRecord[];
+  onUpdateSalesRecords: (sales: SaleRecord[]) => void;
+  onProcessSaleRecord: (id: string, status: 'Approved' | 'Rejected', adminNote?: string) => void;
 }
 
 interface AdminPagesInnerProps extends AdminPagesProps {
@@ -78,11 +89,17 @@ function AdminPagesInner({
   productivityLogs,
   attendance,
   purchaseInward,
+  supplierDebits,
+  onAddSupplierDebit,
+  vendors = [],
+  onAddVendor,
   revokeRequests,
   stockRequests,
   engineerStock,
   lpRequests,
   activeTab,
+  purchaseOrders,
+  onUpdatePurchaseOrders,
   onUpdateUsers,
   onUpdateSkus,
   onUpdateInventory,
@@ -98,10 +115,15 @@ function AdminPagesInner({
   onAddToast,
   triggerModal,
   closeModal,
+  salesRecords = [],
+  onUpdateSalesRecords,
+  onProcessSaleRecord,
 }: AdminPagesInnerProps) {
 
   // --- 1. PRODUCTIVITY QUEUE STATE & LOGIC ---
   const [adApproveTab, setAdApproveTab] = useState<'pending' | 'processed'>('pending');
+  const [editingInwardId, setEditingInwardId] = useState<string | null>(null);
+  const [editingVendorName, setEditingVendorName] = useState<string>('');
 
   const [vanStockSortKey, setVanStockSortKey] = useState<'profile' | 'sku' | 'description' | 'qty' | 'value'>('profile');
   const [vanStockSortAsc, setVanStockSortAsc] = useState<boolean>(true);
@@ -157,6 +179,84 @@ function AdminPagesInner({
   // Processed Records Ledger in LP Approvals sorting
   const [ledgerSortKey, setLedgerSortKey] = useState<'id' | 'job' | 'supervisor' | 'date' | 'spares' | 'services' | 'total' | 'status'>('id');
   const [ledgerSortAsc, setLedgerSortAsc] = useState<boolean>(true);
+
+  // Admin Store Sales approval and ledger states
+  const [salesNotes, setSalesNotes] = useState<Record<string, string>>({});
+  const [processingAdminSalesIds, setProcessingAdminSalesIds] = useState<string[]>([]);
+  const [adminSalesSortKey, setAdminSalesSortKey] = useState<'id' | 'date' | 'vendor' | 'sku' | 'qty' | 'price' | 'total' | 'status'>('date');
+  const [adminSalesSortAsc, setAdminSalesSortAsc] = useState<boolean>(false);
+  const [adminSalesSearch, setAdminSalesSearch] = useState('');
+  const [adminSalesStatusFilter, setAdminSalesStatusFilter] = useState('');
+
+  const handleApproveAdminSale = (id: string) => {
+    if (processingAdminSalesIds.includes(id)) return;
+    setProcessingAdminSalesIds((prev) => [...prev, id]);
+
+    setTimeout(() => {
+      onProcessSaleRecord(id, 'Approved', salesNotes[id] || '');
+      onAddToast(`Sale record ${id} approved successfully and marked as Sales delivered.`, 'success');
+      setProcessingAdminSalesIds((prev) => prev.filter((x) => x !== id));
+    }, 1000);
+  };
+
+  const handleRejectAdminSale = (id: string) => {
+    if (processingAdminSalesIds.includes(id)) return;
+    setProcessingAdminSalesIds((prev) => [...prev, id]);
+
+    setTimeout(() => {
+      onProcessSaleRecord(id, 'Rejected', salesNotes[id] || '');
+      onAddToast(`Sale record ${id} rejected and quantity returned to inventory.`, 'success');
+      setProcessingAdminSalesIds((prev) => prev.filter((x) => x !== id));
+    }, 1000);
+  };
+
+  const handleDownloadAdminSalesCSV = (records: SaleRecord[]) => {
+    const header = ['Sale ID', 'Date', 'Vendor Name', 'SKU Name', 'Quantity', 'Sale Price (INR)', 'Total Value (INR)', 'Reference Number', 'Description', 'Status', 'Submitted By', 'Admin Note'];
+    const rows = records.map((s) => {
+      const vendorName = vendors.find(v => v.id === s.vendorId)?.name || '—';
+      const skuName = skus.find(sk => sk.id === s.skuId)?.name || '—';
+      return [
+        s.id,
+        s.date,
+        vendorName,
+        skuName,
+        s.qty,
+        s.salePrice,
+        s.qty * s.salePrice,
+        s.refNumber || '—',
+        s.description || '—',
+        s.status,
+        s.submittedBy,
+        s.adminNote || '—'
+      ];
+    });
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + [header.join(','), ...rows.map((e) => e.map((val) => `"${val}"`).join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `admin_b2b_sales_audit_history.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    onAddToast('B2B Sales audit history CSV downloaded successfully!');
+  };
+
+  const handleSortAdminSales = (key: 'id' | 'date' | 'vendor' | 'sku' | 'qty' | 'price' | 'total' | 'status') => {
+    if (adminSalesSortKey === key) {
+      setAdminSalesSortAsc(!adminSalesSortAsc);
+    } else {
+      setAdminSalesSortKey(key);
+      setAdminSalesSortAsc(true);
+    }
+  };
+
+  const renderAdminSalesSortIndicator = (key: string) => {
+    if (adminSalesSortKey === key) {
+      return adminSalesSortAsc ? ' ▲' : ' ▼';
+    }
+    return '';
+  };
 
   const toggleLedgerSort = (key: 'id' | 'job' | 'supervisor' | 'date' | 'spares' | 'services' | 'total' | 'status') => {
     if (ledgerSortKey === key) {
@@ -224,7 +324,7 @@ function AdminPagesInner({
         ...attendance,
         [engEmail]: {
           ...(attendance[engEmail] || {}),
-          [dateKey]: (targetReq.status === 'Present' ? 'Present' : 'Absent') as 'Present' | 'Absent'
+          [dateKey]: targetReq.status
         }
       };
       onUpdateAttendance(nextAttendance);
@@ -373,21 +473,8 @@ function AdminPagesInner({
       }
     };
 
-    // Deduct from engineer's van stock
-    const updatedEngStock = { ...engineerStock };
-    const currentVanStocks = updatedEngStock[log.engEmail] || [];
-    const modifiedVanStocks = currentVanStocks.map((item) => {
-      const soldItem = log.accessories.find((a) => a.skuId === item.skuId);
-      if (soldItem) {
-        return { ...item, qty: Math.max(0, item.qty - soldItem.qty) };
-      }
-      return item;
-    });
-    updatedEngStock[log.engEmail] = modifiedVanStocks;
-
     onUpdateLogs(updatedLogs);
     onUpdateAttendance(updatedAttendance);
-    onUpdateEngineerStock(updatedEngStock);
     onAddToast(`Productivity approved! Marked Present for ${getUser(users, log.engEmail).name} on job date ${fmtDate(log.date)}.`);
   };
 
@@ -523,9 +610,10 @@ function AdminPagesInner({
       });
 
       // Deduct allocations from Engineer Van
+      const engEmailKey = rv.engEmail.toLowerCase();
       const updatedEngStock = { ...engineerStock };
-      const list = updatedEngStock[rv.engEmail] || [];
-      updatedEngStock[rv.engEmail] = list.map((item) => {
+      const list = updatedEngStock[engEmailKey] || [];
+      updatedEngStock[engEmailKey] = list.map((item) => {
         if (item.skuId === rv.skuId) {
           return { ...item, qty: Math.max(0, item.qty - rv.qty) };
         }
@@ -600,6 +688,14 @@ function AdminPagesInner({
 
   const [currentSelectedMonth, setCurrentSelectedMonth] = useState(latestLogMonth);
   const [plMonthSelector, setPlMonthSelector] = useState(latestLogMonth);
+  const [plAuditMonth, setPlAuditMonth] = useState(latestLogMonth);
+
+  const [attendanceSortField, setAttendanceSortField] = useState<'name' | 'role' | 'present' | 'leave' | 'noupdate'>('name');
+  const [attendanceSortAsc, setAttendanceSortAsc] = useState<boolean>(true);
+
+  useEffect(() => {
+    setPlAuditMonth(plMonthSelector);
+  }, [plMonthSelector]);
 
   // Ref to keep track of latest month and automatically switch when a new, later month log gets added/approved
   const prevLatestMonthRef = useRef(latestLogMonth);
@@ -607,6 +703,7 @@ function AdminPagesInner({
     if (latestLogMonth !== prevLatestMonthRef.current) {
       setCurrentSelectedMonth(latestLogMonth);
       setPlMonthSelector(latestLogMonth);
+      setPlAuditMonth(latestLogMonth);
       prevLatestMonthRef.current = latestLogMonth;
     }
   }, [latestLogMonth]);
@@ -619,6 +716,71 @@ function AdminPagesInner({
 
   const attendanceDays = Array.from({ length: daysInAttendanceMonth }, (_, i) => {
     return `${currentSelectedMonth}-${String(i + 1).padStart(2, '0')}`;
+  });
+
+  const toggleAttendanceSort = (field: 'name' | 'role' | 'present' | 'leave' | 'noupdate') => {
+    if (attendanceSortField === field) {
+      setAttendanceSortAsc(!attendanceSortAsc);
+    } else {
+      setAttendanceSortField(field);
+      setAttendanceSortAsc(true);
+    }
+  };
+
+  const attendanceSummaryList = attendanceUsers.map((eng) => {
+    const engAtt = attendance[eng.email] || {};
+    const dayToday = new Date().toISOString().substring(0, 7) === currentSelectedMonth 
+      ? new Date().getDate() 
+      : daysInAttendanceMonth;
+    
+    let presentCount = 0;
+    let leaveCount = 0;
+    let noUpdateCount = 0;
+
+    for (let d = 1; d <= dayToday; d++) {
+      const dateStr = `${currentSelectedMonth}-${String(d).padStart(2, '0')}`;
+      const status = engAtt[dateStr] as string;
+      if (status === 'Present') {
+        presentCount++;
+      } else if (status === 'Absent' || status === 'Leave') {
+        leaveCount++;
+      } else {
+        noUpdateCount++;
+      }
+    }
+
+    return {
+      user: eng,
+      presentCount,
+      leaveCount,
+      noUpdateCount
+    };
+  });
+
+  const sortedAttendanceSummary = [...attendanceSummaryList].sort((a, b) => {
+    let valA: any = '';
+    let valB: any = '';
+
+    if (attendanceSortField === 'name') {
+      valA = a.user.name.toLowerCase();
+      valB = b.user.name.toLowerCase();
+    } else if (attendanceSortField === 'role') {
+      valA = a.user.role.toLowerCase();
+      valB = b.user.role.toLowerCase();
+    } else if (attendanceSortField === 'present') {
+      valA = a.presentCount;
+      valB = b.presentCount;
+    } else if (attendanceSortField === 'leave') {
+      valA = a.leaveCount;
+      valB = b.leaveCount;
+    } else if (attendanceSortField === 'noupdate') {
+      valA = a.noUpdateCount;
+      valB = b.noUpdateCount;
+    }
+
+    if (valA < valB) return attendanceSortAsc ? -1 : 1;
+    if (valA > valB) return attendanceSortAsc ? 1 : -1;
+    return 0;
   });
 
   const getLogHistoryForMonth = (email: string, mPrefix: string) => {
@@ -670,8 +832,8 @@ function AdminPagesInner({
 
         if (cellVal === 'Present') {
           return 'Present';
-        } else if (dateObj.getDay() === 0) {
-          return 'Sunday';
+        } else if (cellVal === 'Leave' || cellVal === 'Absent') {
+          return 'Leave';
         } else if (isPast) {
           return 'Absent';
         } else {
@@ -822,11 +984,20 @@ function AdminPagesInner({
   const [plSkuFilter, setPlSkuFilter] = useState('');
 
   const plApprovedLogs = productivityLogs.filter((l) => l.status === 'Approved' && l.date.substring(0, 7) === plMonthSelector);
+  const plApprovedSales = (salesRecords || []).filter((s) => s.status === 'Approved' && s.date.substring(0, 7) === plMonthSelector);
 
   const getPlGrossRevenueTotal = () => {
     let rev = 0;
     plApprovedLogs.forEach((l) => {
       l.accessories.forEach((a) => { rev += a.saleValue; });
+    });
+    return rev;
+  };
+
+  const getPlStoreSalesRevenueTotal = () => {
+    let rev = 0;
+    plApprovedSales.forEach((s) => {
+      rev += s.salePrice * s.qty;
     });
     return rev;
   };
@@ -849,10 +1020,24 @@ function AdminPagesInner({
     return cost;
   };
 
+  const getPlStoreSalesCOGSTotal = () => {
+    let cost = 0;
+    plApprovedSales.forEach((s) => {
+      cost += getSkuPurchaseUnitPrice(purchaseInward, inventory, s.skuId) * s.qty;
+    });
+    return cost;
+  };
+
   const plRevenue = getPlGrossRevenueTotal();
+  const plStoreSalesRevenue = getPlStoreSalesRevenueTotal();
+  const plTotalRevenue = plRevenue + plStoreSalesRevenue;
+
   const plIncentives = getPlIncentivesPaidTotal();
   const plCOGS = getPlCOGSProductCostTotal();
-  const plNetProfits = plRevenue - plIncentives - plCOGS;
+  const plStoreSalesCOGS = getPlStoreSalesCOGSTotal();
+  const plTotalCOGS = plCOGS + plStoreSalesCOGS;
+
+  const plNetProfits = plTotalRevenue - plIncentives - plTotalCOGS;
 
   interface AccessorySaleDetail {
     date: string;
@@ -861,12 +1046,14 @@ function AdminPagesInner({
     skuName: string;
     qty: number;
     saleValue: number;
+    incentive: number;
   }
 
   // Aggregate detailed accessory sales rows
   const getPLAccessoriesReportRows = (): AccessorySaleDetail[] => {
     const list: AccessorySaleDetail[] = [];
-    plApprovedLogs.forEach((l) => {
+    const auditLogs = productivityLogs.filter((l) => l.status === 'Approved' && l.date.substring(0, 7) === plAuditMonth);
+    auditLogs.forEach((l) => {
       const eng = getUser(users, l.engEmail);
       l.accessories.forEach((a) => {
         list.push({
@@ -876,6 +1063,7 @@ function AdminPagesInner({
           skuName: getSku(skus, a.skuId).name,
           qty: a.qty,
           saleValue: a.saleValue,
+          incentive: a.adminIncentive || 0,
         });
       });
     });
@@ -890,7 +1078,7 @@ function AdminPagesInner({
   });
 
   const downloadPLSummaryCSV = () => {
-    const header = ['Engineer Name', 'Email Address', 'Total Gross Revenue (₹)', 'Total Incentives Paid (₹)', 'Weighted Materials Cost (COGS) (₹)', 'Overall Net Profits Contribution (₹)'];
+    const header = ['Engineer Name / Category', 'Email Address', 'Total Gross Revenue (₹)', 'Total Incentives Paid (₹)', 'Weighted Materials Cost (COGS) (₹)', 'Overall Net Profits Contribution (₹)'];
     const rows = matrixEngineers.map((eng) => {
       const engLogs = getLogHistoryForMonth(eng.email, plMonthSelector).filter(l => l.status === 'Approved');
       const rev = engLogs.reduce((s, l) => s + l.accessories.reduce((sum, a) => sum + a.saleValue, 0), 0);
@@ -899,7 +1087,9 @@ function AdminPagesInner({
       return [eng.name, eng.email, rev, inc, cogs, rev - inc - cogs];
     });
 
-    rows.push(['TOTAL CUMULATIVE BOARD', '', String(plRevenue), String(plIncentives), String(plCOGS), String(plNetProfits)]);
+    rows.push(['B2B Sales', '', String(plStoreSalesRevenue), '0', String(plStoreSalesCOGS), String(plStoreSalesRevenue - plStoreSalesCOGS)]);
+
+    rows.push(['TOTAL CUMULATIVE BOARD', '', String(plTotalRevenue), String(plIncentives), String(plTotalCOGS), String(plNetProfits)]);
 
     const csvContent = 'data:text/csv;charset=utf-8,' + [header.join(','), ...rows.map((e) => e.map((val) => `"${val}"`).join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
@@ -913,17 +1103,17 @@ function AdminPagesInner({
   };
 
   const downloadDetailedAccSalesCSV = () => {
-    const header = ['Activity Date', 'Engineer Name', 'SKU Code', 'Item Description', 'Quantity Sold', 'Sale Revenue (₹)', 'Cost per Item unit (₹)'];
+    const header = ['Activity Date', 'Engineer Name', 'SKU Code', 'Item Description', 'Quantity Sold', 'Sale Revenue (₹)', 'Cost per Item unit (₹)', 'Incentive Earned (₹)'];
     const rows = filteredAccDetails.map((item) => {
       const unitValue = item.qty > 0 ? Math.round(item.saleValue / item.qty) : 0;
-      return [item.date, item.engineer, item.skuId, item.skuName, item.qty, item.saleValue, unitValue];
+      return [item.date, item.engineer, item.skuId, item.skuName, item.qty, item.saleValue, unitValue, item.incentive];
     });
 
     const csvContent = 'data:text/csv;charset=utf-8,' + [header.join(','), ...rows.map((e) => e.map((val) => `"${val}"`).join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `accessory_sales_audit_${plMonthSelector}.csv`);
+    link.setAttribute('download', `accessory_sales_audit_${plAuditMonth}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -991,6 +1181,14 @@ function AdminPagesInner({
       `Modify SKU details – ${sku.id}`,
       <SkuEditModalBody sku={sku} onSave={submitSkuModalSave} onClose={closeModal} />
     );
+  };
+
+  const handleDeleteSku = (skuId: string) => {
+    if (window.confirm(`Are you sure you want to delete SKU: ${skuId}? This action cannot be undone.`)) {
+      const updated = skus.filter((s) => s.id !== skuId);
+      onUpdateSkus(updated);
+      onAddToast(`SKU ${skuId} successfully deleted.`, 'success');
+    }
   };
 
 
@@ -1821,30 +2019,30 @@ function AdminPagesInner({
                           className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
                         >
                           Status{renderSortIndicator('status', cargoSortKey, cargoSortAsc)}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
-                      {filteredProcessedPurchases.map((p) => {
-                        const sk = getSku(skus, p.skuId);
-                        const isRejected = p.status === 'Rejected';
-                        return (
-                          <tr key={p.id} className={`hover:bg-slate-50/50 ${isRejected ? 'opacity-60' : ''}`}>
-                            <td className="py-3 px-3"><span className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded border border-slate-150">{p.id}</span></td>
-                            <td className="py-3 px-3"><strong>{sk.name}</strong></td>
-                            <td className="py-3 px-3">{p.vendor || 'N/A'}</td>
-                            <td className="py-3 px-3 text-slate-500">{fmtDate(p.date)}</td>
-                            <td className="py-3 px-3 font-bold font-semibold">×{p.qty}</td>
-                            <td className="py-3 px-3 text-slate-600">{fmtCur(p.unitPrice)}</td>
-                            <td className="py-3 px-3 text-indigo-650 font-bold">{fmtCur(p.qty * p.unitPrice)}</td>
-                            <td className="py-3 px-3">
-                              <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[9px] font-extrabold uppercase border ${p.status === 'Approved' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'}`}>
-                                {p.status}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
+                    {filteredProcessedPurchases.map((p) => {
+                      const sk = getSku(skus, p.skuId);
+                      const isRejected = p.status === 'Rejected';
+                      return (
+                        <tr key={p.id} className={`hover:bg-slate-50/50 ${isRejected ? 'opacity-60' : ''}`}>
+                          <td className="py-3 px-3"><span className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded border border-slate-150">{p.id}</span></td>
+                          <td className="py-3 px-3"><strong>{sk.name}</strong></td>
+                          <td className="py-3 px-3">{p.vendor || 'N/A'}</td>
+                          <td className="py-3 px-3 text-slate-500">{fmtDate(p.date)}</td>
+                          <td className="py-3 px-3 font-bold font-semibold">×{p.qty}</td>
+                          <td className="py-3 px-3 text-slate-600">{fmtCur(p.unitPrice)}</td>
+                          <td className="py-3 px-3 text-indigo-650 font-bold">{fmtCur(p.qty * p.unitPrice)}</td>
+                          <td className="py-3 px-3">
+                            <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[9px] font-extrabold uppercase border ${p.status === 'Approved' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'}`}>
+                              {p.status}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
                     </tbody>
                   </table>
                 </div>
@@ -1910,7 +2108,7 @@ function AdminPagesInner({
                   filteredPendingRevokes.map((rv) => {
                     const sk = getSku(skus, rv.skuId);
                     const eng = getUser(users, rv.engEmail);
-                    const list = engineerStock[rv.engEmail] || [];
+                    const list = engineerStock[rv.engEmail.toLowerCase()] || [];
                     const activeVanItem = list.find((it) => it.skuId === rv.skuId);
                     const vanQty = activeVanItem ? activeVanItem.qty : 0;
                     const isProcessing = processingRevokeIds.includes(rv.id);
@@ -2175,26 +2373,78 @@ function AdminPagesInner({
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-100">
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">Staff Profile</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 text-center">Days Present</th>
-                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 text-center">Days Absent</th>
+                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">
+                    <button
+                      onClick={() => toggleAttendanceSort('name')}
+                      className="flex items-center gap-1 hover:text-slate-750 transition font-extrabold outline-none"
+                    >
+                      Employee Name
+                      <span className="text-[10px] text-indigo-650 font-bold">
+                        {attendanceSortField === 'name' ? (attendanceSortAsc ? '↑' : '↓') : '↕'}
+                      </span>
+                    </button>
+                  </th>
+                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400">
+                    <button
+                      onClick={() => toggleAttendanceSort('role')}
+                      className="flex items-center gap-1 hover:text-slate-750 transition font-extrabold outline-none"
+                    >
+                      Role
+                      <span className="text-[10px] text-indigo-650 font-bold">
+                        {attendanceSortField === 'role' ? (attendanceSortAsc ? '↑' : '↓') : '↕'}
+                      </span>
+                    </button>
+                  </th>
+                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 text-center">
+                    <button
+                      onClick={() => toggleAttendanceSort('present')}
+                      className="mx-auto flex items-center justify-center gap-1 hover:text-slate-750 transition font-extrabold outline-none"
+                    >
+                      Days Present
+                      <span className="text-[10px] text-indigo-650 font-bold">
+                        {attendanceSortField === 'present' ? (attendanceSortAsc ? '↑' : '↓') : '↕'}
+                      </span>
+                    </button>
+                  </th>
+                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 text-center">
+                    <button
+                      onClick={() => toggleAttendanceSort('leave')}
+                      className="mx-auto flex items-center justify-center gap-1 hover:text-slate-750 transition font-extrabold outline-none"
+                    >
+                      Days Leave
+                      <span className="text-[10px] text-indigo-650 font-bold">
+                        {attendanceSortField === 'leave' ? (attendanceSortAsc ? '↑' : '↓') : '↕'}
+                      </span>
+                    </button>
+                  </th>
+                  <th className="py-2.5 px-3 text-xs font-bold tracking-wider text-slate-400 text-center">
+                    <button
+                      onClick={() => toggleAttendanceSort('noupdate')}
+                      className="mx-auto flex items-center justify-center gap-1 hover:text-slate-750 transition font-extrabold outline-none"
+                    >
+                      Days No Update
+                      <span className="text-[10px] text-indigo-650 font-bold">
+                        {attendanceSortField === 'noupdate' ? (attendanceSortAsc ? '↑' : '↓') : '↕'}
+                      </span>
+                    </button>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                {attendanceUsers.map((eng) => {
-                  const presentCount = getPresentDaysPercentage(eng.email, currentSelectedMonth);
-                  // days in month limit
-                  const dayToday = new Date().toISOString().substring(0, 7) === currentSelectedMonth ? new Date().getDate() : daysInAttendanceMonth;
-                  const absentCount = Math.max(0, dayToday - presentCount);
-
+                {sortedAttendanceSummary.map(({ user: eng, presentCount, leaveCount, noUpdateCount }) => {
                   return (
                     <tr key={eng.email} className="hover:bg-slate-50/50">
+                      <td className="py-3 px-3 font-semibold text-slate-900">
+                        {eng.name}
+                      </td>
                       <td className="py-3 px-3">
-                        <strong>{eng.name}</strong>
-                        <span className="block text-[10px] text-indigo-600 font-bold uppercase tracking-wider">{eng.role}</span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold bg-indigo-50 text-indigo-700 uppercase tracking-wider">
+                          {eng.role}
+                        </span>
                       </td>
                       <td className="py-3 px-3 text-center text-emerald-800 font-bold">{presentCount} Days</td>
-                      <td className="py-3 px-3 text-center text-rose-800 font-bold">{absentCount} Days</td>
+                      <td className="py-3 px-3 text-center text-blue-800 font-bold">{leaveCount} Days</td>
+                      <td className="py-3 px-3 text-center text-amber-800 font-bold">{noUpdateCount} Days</td>
                     </tr>
                   );
                 })}
@@ -2245,7 +2495,11 @@ function AdminPagesInner({
                           <td key={d} className="py-1 px-1.5 text-center">
                             {cellVal === 'Present' ? (
                               <span className="font-bold text-emerald-600 text-xs shrink-0 inline-block">✓</span>
-                            ) : isPast && dateObj.getDay() !== 0 ? (
+                            ) : cellVal === 'Leave' || cellVal === 'Absent' ? (
+                              <span className="font-bold text-blue-600 text-xs shrink-0 inline-block">L</span>
+                            ) : dateObj.getDay() === 0 ? (
+                              <span className="text-slate-200 shrink-0 inline-block font-black">·</span>
+                            ) : isPast ? (
                               <span className="font-bold text-rose-450 text-[10px] shrink-0 inline-block">—</span>
                             ) : (
                               <span className="text-slate-200 shrink-0 inline-block font-black">·</span>
@@ -2825,10 +3079,13 @@ function AdminPagesInner({
         </div>
 
         {/* Business summary cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn">
           <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
             <span className="text-xs font-bold tracking-wider text-slate-400 block mb-1">Gross Revenue</span>
-            <span className="text-2xl font-black block text-indigo-750">{fmtCur(plRevenue)}</span>
+            <span className="text-2xl font-black block text-indigo-750">{fmtCur(plTotalRevenue)}</span>
+            <p className="text-[10px] text-slate-400 mt-1 font-semibold">
+              Acc: {fmtCur(plRevenue)} | B2B: {fmtCur(plStoreSalesRevenue)}
+            </p>
           </div>
 
           <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
@@ -2838,8 +3095,10 @@ function AdminPagesInner({
 
           <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
             <span className="text-xs font-bold tracking-wider text-slate-400 block mb-1">Materials Cost (COGS)</span>
-            <span className="text-2xl font-black block text-rose-650">{fmtCur(plCOGS)}</span>
-            <p className="text-[10px] text-slate-400 mt-1 font-semibold">Weighted average cost</p>
+            <span className="text-2xl font-black block text-rose-650">{fmtCur(plTotalCOGS)}</span>
+            <p className="text-[10px] text-slate-400 mt-1 font-semibold">
+              Acc: {fmtCur(plCOGS)} | B2B: {fmtCur(plStoreSalesCOGS)}
+            </p>
           </div>
 
           <div className={`rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm before:absolute before:inset-x-0 before:top-0 before:h-1 ${plNetProfits >= 0 ? 'bg-emerald-50/20' : 'bg-rose-50/20'}`}>
@@ -2893,11 +3152,23 @@ function AdminPagesInner({
         <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm space-y-4">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
-              <h2 className="font-display text-base font-bold text-slate-950">Approved Accessories Sales Audit</h2>
+              <h2 className="font-display text-base font-bold text-slate-955">Approved Accessories Sales Audit</h2>
               <p className="text-xs text-slate-400">Logs individual product dispatches recorded during service routes</p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={plAuditMonth}
+                onChange={(e) => setPlAuditMonth(e.target.value)}
+                className="rounded-xl border border-slate-202 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-650 outline-none"
+              >
+                {uniqueLogMonths.map((m) => {
+                  const parts = m.split('-');
+                  const lbl = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+                  return <option key={m} value={m}>{lbl}</option>;
+                })}
+              </select>
+
               <select
                 value={plEngFilter}
                 onChange={(e) => setPlEngFilter(e.target.value)}
@@ -2937,13 +3208,14 @@ function AdminPagesInner({
                   <th className="py-2 px-3 text-xs font-bold text-slate-450">Engineer</th>
                   <th className="py-2 px-3 text-xs font-bold text-slate-450">Item Description</th>
                   <th className="py-2 px-3 text-xs font-bold text-slate-450">Sold Units</th>
+                  <th className="py-2 px-3 text-xs font-bold text-slate-450" style={{ textAlign: 'right' }}>Incentive</th>
                   <th className="py-2 px-3 text-xs font-bold text-slate-450" style={{ textAlign: 'right' }}>Invoice Value</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
                 {filteredAccDetails.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="text-center py-6 text-slate-400">No approved dispatches matching criteria.</td>
+                    <td colSpan={6} className="text-center py-6 text-slate-400">No approved dispatches matching criteria.</td>
                   </tr>
                 ) : (
                   filteredAccDetails.map((item, idx) => (
@@ -2952,6 +3224,7 @@ function AdminPagesInner({
                       <td className="py-2.5 px-3"><strong>{item.engineer}</strong></td>
                       <td className="py-2.5 px-3">{item.skuName} <span className="font-mono text-xs text-indigo-750 bg-indigo-50 rounded px-1.5 py-0.5 ml-2 font-bold">{item.skuId}</span></td>
                       <td className="py-2.5 px-3 font-semibold text-slate-800">{item.qty} units sold</td>
+                      <td className="py-2.5 px-3 text-emerald-600 font-bold text-right">{fmtCur(item.incentive)}</td>
                       <td className="py-2.5 px-3 text-slate-900 font-bold text-right">{fmtCur(item.saleValue)}</td>
                     </tr>
                   ))
@@ -3046,12 +3319,22 @@ function AdminPagesInner({
                       <td className="py-3 px-3 font-semibold text-slate-900">{sku.name}</td>
                       <td className="py-3 px-3 text-slate-600">{sku.lowStockAlert} units alert</td>
                       <td className="py-3 px-3 text-right">
-                        <button
-                          onClick={() => openSkuEditModal(sku)}
-                          className="rounded p-1 text-slate-450 hover:bg-indigo-50 hover:text-indigo-650 border border-transparent hover:border-indigo-150 transition"
-                        >
-                          <Edit className="h-4 w-4 shrink-0" />
-                        </button>
+                        <div className="flex justify-end items-center gap-1.5">
+                          <button
+                            onClick={() => openSkuEditModal(sku)}
+                            className="rounded p-1 text-slate-450 hover:bg-indigo-50 hover:text-indigo-650 border border-transparent hover:border-indigo-150 transition"
+                            title="Edit SKU"
+                          >
+                            <Edit className="h-4 w-4 shrink-0" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteSku(sku.id)}
+                            className="rounded p-1 text-slate-450 hover:bg-rose-50 hover:text-rose-650 border border-transparent hover:border-rose-150 transition"
+                            title="Delete SKU"
+                          >
+                            <Trash className="h-4 w-4 shrink-0" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -3069,6 +3352,7 @@ function AdminPagesInner({
       <AdminLPApprovalsView
         lpRequests={lpRequests}
         users={users}
+        purchaseOrders={purchaseOrders}
         onUpdateLpRequests={onUpdateLpRequests}
         onAddToast={onAddToast}
       />
@@ -3259,7 +3543,7 @@ function AdminPagesInner({
 
           <div className="relative overflow-hidden rounded-2xl border border-slate-200/65 bg-white p-5 shadow-sm before:absolute before:inset-x-0 before:top-0 before:h-1 before:bg-blue-600 font-sans">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1">
-              Total RCP Generated
+              RCP Generated
             </span>
             <div className="flex items-center gap-2">
               <DollarSign className="h-5 w-5 text-blue-550 shrink-0" />
@@ -3574,6 +3858,330 @@ function AdminPagesInner({
     );
   }
 
+  if (activeTab === 'admin-po-tracker') {
+    return (
+      <POTrackerView
+        currentUser={currentUser}
+        purchaseOrders={purchaseOrders}
+        onUpdatePurchaseOrders={onUpdatePurchaseOrders}
+        onAddToast={onAddToast}
+        mode="Admin"
+      />
+    );
+  }
+
+  if (activeTab === 'admin-supplier-ledger') {
+    return (
+      <SupplierLedgerView
+        currentUser={currentUser}
+        purchaseInward={purchaseInward}
+        supplierDebits={supplierDebits}
+        onAddSupplierDebit={onAddSupplierDebit}
+        onAddToast={onAddToast}
+        mode="Admin"
+      />
+    );
+  }
+
+  if (activeTab === 'admin-sales') {
+    const pendingSales = (salesRecords || []).filter(s => s.status === 'Pending');
+    const processedSales = (salesRecords || []).filter(s => s.status === 'Approved' || s.status === 'Rejected');
+
+    // Filter processed sales by search query and status filter
+    const filteredProcessedSales = processedSales.filter(s => {
+      const vendorName = vendors.find(v => v.id === s.vendorId)?.name || '';
+      const skuName = skus.find(sk => sk.id === s.skuId)?.name || '';
+      
+      if (adminSalesStatusFilter && s.status !== adminSalesStatusFilter) return false;
+
+      if (adminSalesSearch.trim()) {
+        const query = adminSalesSearch.toLowerCase();
+        return (
+          s.id.toLowerCase().includes(query) ||
+          vendorName.toLowerCase().includes(query) ||
+          skuName.toLowerCase().includes(query) ||
+          s.refNumber.toLowerCase().includes(query) ||
+          (s.description || '').toLowerCase().includes(query)
+        );
+      }
+      return true;
+    });
+
+    // Sort processed sales
+    const sortedProcessedSales = [...filteredProcessedSales].sort((a, b) => {
+      let comparison = 0;
+      const vendorA = vendors.find(v => v.id === a.vendorId)?.name || '';
+      const vendorB = vendors.find(v => v.id === b.vendorId)?.name || '';
+      const skuA = skus.find(s => s.id === a.skuId)?.name || '';
+      const skuB = skus.find(s => s.id === b.skuId)?.name || '';
+
+      if (adminSalesSortKey === 'id') {
+        comparison = a.id.localeCompare(b.id);
+      } else if (adminSalesSortKey === 'date') {
+        comparison = a.date.localeCompare(b.date);
+      } else if (adminSalesSortKey === 'vendor') {
+        comparison = vendorA.localeCompare(vendorB);
+      } else if (adminSalesSortKey === 'sku') {
+        comparison = skuA.localeCompare(skuB);
+      } else if (adminSalesSortKey === 'qty') {
+        comparison = a.qty - b.qty;
+      } else if (adminSalesSortKey === 'price') {
+        comparison = a.salePrice - b.salePrice;
+      } else if (adminSalesSortKey === 'total') {
+        comparison = (a.qty * a.salePrice) - (b.qty * b.salePrice);
+      } else if (adminSalesSortKey === 'status') {
+        comparison = a.status.localeCompare(b.status);
+      }
+
+      return adminSalesSortAsc ? comparison : -comparison;
+    });
+
+    return (
+      <div className="space-y-6 animate-fadeIn">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h1 className="font-display text-2xl font-extrabold text-slate-955">B2B Sales Manager</h1>
+            <p className="text-sm font-medium text-slate-400">Approve new registered sales and audit historical B2B transactions</p>
+          </div>
+        </div>
+
+        {/* Action Required Queue Section */}
+        <div className="space-y-4">
+          <h2 className="font-display text-base font-extrabold text-slate-900">Approval Queue (Action Required)</h2>
+
+          {pendingSales.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-slate-400 font-semibold text-sm animate-fadeIn">
+              No sales records are awaiting your approval.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {pendingSales.map((s) => {
+                const vendorName = vendors.find(v => v.id === s.vendorId)?.name || '—';
+                const skuName = skus.find(sk => sk.id === s.skuId)?.name || '—';
+                const totalVal = s.qty * s.salePrice;
+                const isProcessing = processingAdminSalesIds.includes(s.id);
+                
+                return (
+                  <div key={s.id} className={`rounded-2xl border border-slate-200 bg-white p-5 shadow-xs space-y-4 animate-fadeIn transition ${isProcessing ? 'opacity-70 pointer-events-none' : ''}`}>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="font-mono text-[11px] font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-md block w-fit mb-1">
+                          {s.id}
+                        </span>
+                        <h3 className="font-display text-sm font-extrabold text-slate-900">
+                          {vendorName}
+                        </h3>
+                        <span className="text-xs text-slate-450 block">Ref: {s.refNumber}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-xs font-semibold text-slate-400 block">Date Raised</span>
+                        <strong className="text-sm text-slate-800">{fmtDate(s.date)}</strong>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 bg-slate-50/50 rounded-xl p-3 border border-slate-100/75 text-center">
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">SKU Item</span>
+                        <strong className="text-xs font-extrabold text-slate-800 truncate block px-1" title={skuName}>{skuName}</strong>
+                      </div>
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Quantity</span>
+                        <strong className="text-sm font-extrabold text-slate-800">{s.qty} units</strong>
+                      </div>
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Total Value</span>
+                        <strong className="text-sm font-extrabold text-indigo-650">{fmtCur(totalVal)}</strong>
+                      </div>
+                    </div>
+
+                    {s.description && (
+                      <div className="text-xs bg-slate-50 border border-slate-100 text-slate-600 p-2.5 rounded-xl font-semibold">
+                        <strong>Description:</strong> "{s.description}"
+                      </div>
+                    )}
+
+                    <div className="space-y-3 pt-1">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] font-bold tracking-wider text-slate-500 uppercase">Review Note (optional)</label>
+                        <input
+                          type="text"
+                          placeholder="Provide approval / rejection note..."
+                          value={salesNotes[s.id] || ''}
+                          onChange={(e) => setSalesNotes({ ...salesNotes, [s.id]: e.target.value })}
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-indigo-650"
+                        />
+                      </div>
+
+                      <div className="flex justify-end gap-2">
+                        <button
+                          disabled={isProcessing}
+                          onClick={() => handleRejectAdminSale(s.id)}
+                          className="rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 px-4 py-2 text-xs font-bold text-rose-800 transition"
+                        >
+                          Reject
+                        </button>
+                        <button
+                          disabled={isProcessing}
+                          onClick={() => handleApproveAdminSale(s.id)}
+                          className="rounded-xl bg-indigo-600 hover:bg-slate-900 px-4 py-2 text-xs font-bold text-white transition shadow-sm"
+                        >
+                          {isProcessing ? 'Processing...' : 'Approve Sale'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Store Sales Audit History Table */}
+        <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm space-y-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-100 pb-4">
+            <div>
+              <h2 className="font-display text-base font-extrabold text-slate-955">B2B Sales Audit History</h2>
+              <p className="text-xs text-slate-400">Reconciled B2B logs and customer transactions</p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative">
+                <Search className="absolute left-3.5 top-3 h-3.5 w-3.5 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search Job ID, Vendor, Item..."
+                  value={adminSalesSearch}
+                  onChange={(e) => setAdminSalesSearch(e.target.value)}
+                  className="rounded-xl border border-slate-200 bg-white pl-9 pr-3.5 py-2 text-xs font-semibold text-slate-655 outline-none focus:border-indigo-650 w-64"
+                />
+              </div>
+
+              <select
+                value={adminSalesStatusFilter}
+                onChange={(e) => setAdminSalesStatusFilter(e.target.value)}
+                className="rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold text-slate-600 outline-none"
+              >
+                <option value="">All Statuses</option>
+                <option value="Approved">Sales delivered</option>
+                <option value="Rejected">Rejected</option>
+              </select>
+
+              <button
+                onClick={() => handleDownloadAdminSalesCSV(sortedProcessedSales)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-650 transition"
+              >
+                <Download className="h-4 w-4" /> Export CSV
+              </button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto text-xs font-medium">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-100 select-none">
+                  <th
+                    onClick={() => handleSortAdminSales('id')}
+                    className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors uppercase w-28"
+                  >
+                    Sale ID{renderAdminSalesSortIndicator('id')}
+                  </th>
+                  <th
+                    onClick={() => handleSortAdminSales('date')}
+                    className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors uppercase"
+                  >
+                    Date{renderAdminSalesSortIndicator('date')}
+                  </th>
+                  <th
+                    onClick={() => handleSortAdminSales('vendor')}
+                    className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors uppercase"
+                  >
+                    Vendor{renderAdminSalesSortIndicator('vendor')}
+                  </th>
+                  <th
+                    onClick={() => handleSortAdminSales('sku')}
+                    className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors uppercase"
+                  >
+                    SKU Item{renderAdminSalesSortIndicator('sku')}
+                  </th>
+                  <th
+                    onClick={() => handleSortAdminSales('qty')}
+                    className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors uppercase"
+                  >
+                    Qty{renderAdminSalesSortIndicator('qty')}
+                  </th>
+                  <th
+                    onClick={() => handleSortAdminSales('price')}
+                    className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors uppercase"
+                  >
+                    Price{renderAdminSalesSortIndicator('price')}
+                  </th>
+                  <th
+                    onClick={() => handleSortAdminSales('total')}
+                    className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors uppercase"
+                  >
+                    Total Value{renderAdminSalesSortIndicator('total')}
+                  </th>
+                  <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
+                    Ref Number
+                  </th>
+                  <th
+                    onClick={() => handleSortAdminSales('status')}
+                    className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors uppercase"
+                  >
+                    Status{renderAdminSalesSortIndicator('status')}
+                  </th>
+                  <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
+                    Admin Note
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50 font-semibold text-slate-700">
+                {sortedProcessedSales.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="text-center py-8 text-slate-400">
+                      No matching processed sales found.
+                    </td>
+                  </tr>
+                ) : (
+                  sortedProcessedSales.map((s) => {
+                    const vendor = vendors.find(v => v.id === s.vendorId);
+                    const sku = skus.find(sk => sk.id === s.skuId);
+                    return (
+                      <tr key={s.id} className="hover:bg-slate-50/50 transition">
+                        <td className="py-3 px-3 font-mono text-slate-550">{s.id}</td>
+                        <td className="py-3 px-3 text-slate-500">{fmtDate(s.date)}</td>
+                        <td className="py-3 px-3 text-slate-900">{vendor ? vendor.name : '—'}</td>
+                        <td className="py-3 px-3 text-slate-900">{sku ? sku.name : '—'}</td>
+                        <td className="py-3 px-3 text-slate-600">{s.qty} units</td>
+                        <td className="py-3 px-3 text-slate-700">{fmtCur(s.salePrice)}</td>
+                        <td className="py-3 px-3 text-indigo-650 font-bold">{fmtCur(s.qty * s.salePrice)}</td>
+                        <td className="py-3 px-3 text-slate-600">{s.refNumber}</td>
+                        <td className="py-3 px-3">
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold border ${
+                              s.status === 'Approved'
+                                ? 'bg-emerald-50 border-emerald-100 text-emerald-800'
+                                : 'bg-rose-50 border-rose-200 text-rose-850'
+                            }`}
+                          >
+                            {s.status === 'Approved' ? 'Sales delivered' : s.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-slate-505 font-normal italic max-w-xs truncate" title={s.adminNote}>
+                          {s.adminNote || '—'}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Fallback modal wrapper logic rendering in React
   return (
     <div className="text-center py-12 text-slate-400">Page coming soon.</div>
@@ -3626,14 +4234,16 @@ export function AdminPages(props: AdminPagesProps) {
 interface AdminLPApprovalsViewProps {
   lpRequests: LPRequest[];
   users: User[];
+  purchaseOrders: PurchaseOrder[];
   onUpdateLpRequests: (requests: LPRequest[]) => void;
   onAddToast: (msg: string, type?: 'success' | 'error') => void;
 }
 
-function AdminLPApprovalsView({ lpRequests, users, onUpdateLpRequests, onAddToast }: AdminLPApprovalsViewProps) {
+function AdminLPApprovalsView({ lpRequests, users, purchaseOrders, onUpdateLpRequests, onAddToast }: AdminLPApprovalsViewProps) {
   const [startDateFilter, setStartDateFilter] = useState('');
   const [endDateFilter, setEndDateFilter] = useState('');
   const [ledgerSearch, setLedgerSearch] = useState('');
+  const [queueSearch, setQueueSearch] = useState('');
   const [ledgerStatusFilter, setLedgerStatusFilter] = useState('');
   const [exportStatus, setExportStatus] = useState('all');
   const [processingLpIds, setProcessingLpIds] = useState<string[]>([]);
@@ -3718,6 +4328,36 @@ function AdminLPApprovalsView({ lpRequests, users, onUpdateLpRequests, onAddToas
     }, 1000);
   };
 
+  const handleApproveRevokeLP = (id: string) => {
+    if (processingLpIds.includes(id)) return;
+    setProcessingLpIds((prev) => [...prev, id]);
+
+    setTimeout(() => {
+      const updated = lpRequests.map((lp) => {
+        if (lp.id === id) return { ...lp, status: 'Cancelled' as const };
+        return lp;
+      });
+      onUpdateLpRequests(updated);
+      onAddToast(`LP Request ${id} cancellation approved. Status marked Cancelled.`, 'success');
+      setProcessingLpIds((prev) => prev.filter((x) => x !== id));
+    }, 1000);
+  };
+
+  const handleRejectRevokeLP = (id: string) => {
+    if (processingLpIds.includes(id)) return;
+    setProcessingLpIds((prev) => [...prev, id]);
+
+    setTimeout(() => {
+      const updated = lpRequests.map((lp) => {
+        if (lp.id === id) return { ...lp, status: 'Claim pending' as const };
+        return lp;
+      });
+      onUpdateLpRequests(updated);
+      onAddToast(`LP Request ${id} cancellation rejected. Status returned to Claim pending.`, 'success');
+      setProcessingLpIds((prev) => prev.filter((x) => x !== id));
+    }, 1000);
+  };
+
   // Date range verification helper
   const isWithinDateRange = (dateStr: string) => {
     if (!dateStr) return true;
@@ -3738,14 +4378,24 @@ function AdminLPApprovalsView({ lpRequests, users, onUpdateLpRequests, onAddToas
   const approvedClaimsItems = activeLpRequests.filter((lp) => lp.status === 'Claim approved');
   const totalApprovedAmount = approvedClaimsItems.reduce((sum, lp) => sum + lp.spareCost + lp.serviceCost, 0);
 
-  // Queue records: Pending LP and Claims Forwarded
+  // Queue records: Pending LP, Claims Forwarded, and Revoke Pending
   const actionQueue = activeLpRequests.filter((lp) =>
-    lp.status === 'Pending' || lp.status === 'Claim forwarded'
+    lp.status === 'Pending' || lp.status === 'Claim forwarded' || lp.status === 'Revoke Pending'
   ).sort((a, b) => a.date.localeCompare(b.date));
+
+  const filteredActionQueue = actionQueue.filter((lp) => {
+    if (!queueSearch.trim()) return true;
+    const query = queueSearch.toLowerCase();
+    return (
+      lp.jobId.toLowerCase().includes(query) ||
+      lp.id.toLowerCase().includes(query) ||
+      (lp.description || '').toLowerCase().includes(query)
+    );
+  });
 
   // Ledger records: Processed/Historical entries (everything outside active queue)
   const unsortedLedgerRecords = activeLpRequests.filter((lp) =>
-    lp.status !== 'Pending' && lp.status !== 'Claim forwarded'
+    lp.status !== 'Pending' && lp.status !== 'Claim forwarded' && lp.status !== 'Revoke Pending'
   ).filter((lp) => {
     // Status filter
     if (ledgerStatusFilter && lp.status !== ledgerStatusFilter) return false;
@@ -3757,7 +4407,8 @@ function AdminLPApprovalsView({ lpRequests, users, onUpdateLpRequests, onAddToas
       return (
         lp.jobId.toLowerCase().includes(query) ||
         lp.id.toLowerCase().includes(query) ||
-        sup.name.toLowerCase().includes(query)
+        sup.name.toLowerCase().includes(query) ||
+        (lp.description || '').toLowerCase().includes(query)
       );
     }
     return true;
@@ -3796,11 +4447,26 @@ function AdminLPApprovalsView({ lpRequests, users, onUpdateLpRequests, onAddToas
       return true;
     });
 
-    const header = ['LP Request ID', 'Job ID', 'Supervisor Name', 'Supervisor Email', 'Date Raised', 'Spare Cost (INR)', 'Service Cost (INR)', 'Total Cost (INR)', 'Status'];
+    const header = ['LP Request ID', 'Job ID', 'PO Number', 'PO Status', 'PO Received Value (INR)', 'Supervisor Name', 'Supervisor Email', 'Date Raised', 'Spare Cost (INR)', 'Service Cost (INR)', 'Total Cost (INR)', 'Status'];
     const rows = dataToExport.map((lp) => {
       const u = getUser(users, lp.tlEmail);
       const total = lp.spareCost + lp.serviceCost;
-      return [lp.id, lp.jobId, u.name, lp.tlEmail, lp.date, lp.spareCost, lp.serviceCost, total, lp.status];
+      const associatedPO = purchaseOrders.find((po) => po.poNumber === lp.poNumber);
+      const poStatus = associatedPO ? associatedPO.status : '—';
+      return [
+        lp.id, 
+        lp.jobId, 
+        lp.poNumber || '—', 
+        poStatus, 
+        lp.poReceivedValue !== undefined ? lp.poReceivedValue : '—',
+        u.name, 
+        lp.tlEmail, 
+        lp.date, 
+        lp.spareCost, 
+        lp.serviceCost, 
+        total, 
+        lp.status
+      ];
     });
 
     const csvContent = 'data:text/csv;charset=utf-8,' + [header.join(','), ...rows.map((e) => e.map((val) => `"${val}"`).join(','))].join('\n');
@@ -3909,16 +4575,34 @@ function AdminLPApprovalsView({ lpRequests, users, onUpdateLpRequests, onAddToas
 
       {/* Action Required Queue Section */}
       <div className="space-y-4">
-        <h2 className="font-display text-base font-extrabold text-slate-900">Approval Queue (Action Required)</h2>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <h2 className="font-display text-base font-extrabold text-slate-900">Approval Queue (Action Required)</h2>
+          <div className="relative shrink-0 w-full sm:w-64">
+            <Search className="absolute left-3.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search Job ID or Description..."
+              value={queueSearch}
+              onChange={(e) => setQueueSearch(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3.5 py-1.5 text-xs font-semibold text-slate-655 outline-none focus:border-indigo-650"
+            />
+          </div>
+        </div>
 
-        {actionQueue.length === 0 ? (
+        {filteredActionQueue.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center text-slate-400">
             <CheckCircle className="mx-auto h-12 w-12 text-emerald-100 mb-2" />
-            <h3 className="font-bold text-slate-900 text-lg">Action Queue Empty!</h3>
-            <p className="text-sm mt-1 font-semibold">Every submitted local purchase request or claim has been reconciled.</p>
+            <h3 className="font-bold text-slate-900 text-lg">
+              {actionQueue.length > 0 ? 'No matching requests found' : 'Action Queue Empty!'}
+            </h3>
+            <p className="text-sm mt-1 font-semibold">
+              {actionQueue.length > 0
+                ? 'Try adjusting your search criteria.'
+                : 'Every submitted local purchase request or claim has been reconciled.'}
+            </p>
           </div>
         ) : (
-          actionQueue.map((lp) => {
+          filteredActionQueue.map((lp) => {
             const requester = getUser(users, lp.tlEmail);
             const total = lp.spareCost + lp.serviceCost;
             const isProcessing = processingLpIds.includes(lp.id);
@@ -3928,8 +4612,10 @@ function AdminLPApprovalsView({ lpRequests, users, onUpdateLpRequests, onAddToas
               <div
                 key={lp.id}
                 className={`rounded-2xl bg-white p-5 shadow-sm space-y-4 transition-all ${
-                  isLpType
+                  lp.status === 'Pending'
                     ? 'border border-amber-200 border-l-4 border-l-amber-500'
+                    : lp.status === 'Revoke Pending'
+                    ? 'border border-orange-200 border-l-4 border-l-orange-500 bg-orange-50/5'
                     : 'border border-blue-200 border-l-4 border-l-blue-500'
                 } ${isProcessing ? 'opacity-70 pointer-events-none bg-slate-50' : ''}`}
               >
@@ -3951,11 +4637,13 @@ function AdminLPApprovalsView({ lpRequests, users, onUpdateLpRequests, onAddToas
 
                   <div className="flex flex-col items-end gap-1.5 self-start shrink-0">
                     <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide border ${
-                      isLpType
+                      lp.status === 'Pending'
                         ? 'bg-amber-50 border-amber-200 text-amber-800'
+                        : lp.status === 'Revoke Pending'
+                        ? 'bg-orange-50 border-orange-200 text-orange-850'
                         : 'bg-blue-50 border-blue-205 text-blue-805'
                     }`}>
-                      {isLpType ? 'Pending LP Approval' : 'Claim Forwarded'}
+                      {lp.status === 'Pending' ? 'Pending LP Approval' : lp.status === 'Revoke Pending' ? 'Revoke Pending' : 'Claim Forwarded'}
                     </span>
                     {isProcessing && (
                       <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-900 border border-slate-700 px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-white animate-pulse">
@@ -3980,20 +4668,57 @@ function AdminLPApprovalsView({ lpRequests, users, onUpdateLpRequests, onAddToas
                   </div>
                 </div>
 
+                {lp.poNumber && (
+                  <div className="flex flex-wrap gap-4 text-xs font-semibold text-slate-700 bg-indigo-50/20 px-4 py-2.5 rounded-xl border border-indigo-100/50">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Associated PO</span>
+                      <span className="font-mono text-slate-800">{lp.poNumber}</span>
+                    </div>
+                    {lp.poReceivedValue !== undefined && (
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">PO Received Value</span>
+                        <span className="font-bold text-indigo-650">{fmtCur(lp.poReceivedValue)}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex justify-end gap-2.5">
                   <button
                     disabled={isProcessing}
-                    onClick={() => (isLpType ? handleRejectLp(lp.id) : handleRejectClaim(lp.id))}
+                    onClick={() => {
+                      if (lp.status === 'Revoke Pending') {
+                        handleRejectRevokeLP(lp.id);
+                      } else if (isLpType) {
+                        handleRejectLp(lp.id);
+                      } else {
+                        handleRejectClaim(lp.id);
+                      }
+                    }}
                     className="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100 px-4.5 py-2.5 text-xs font-bold transition disabled:opacity-50"
                   >
                     Reject
                   </button>
                   <button
                     disabled={isProcessing}
-                    onClick={() => (isLpType ? handleApproveLp(lp.id) : handleApproveClaim(lp.id))}
+                    onClick={() => {
+                      if (lp.status === 'Revoke Pending') {
+                        handleApproveRevokeLP(lp.id);
+                      } else if (isLpType) {
+                        handleApproveLp(lp.id);
+                      } else {
+                        handleApproveClaim(lp.id);
+                      }
+                    }}
                     className="rounded-xl bg-indigo-600 text-white hover:bg-slate-900 px-4.5 py-2.5 text-xs font-bold transition shadow-sm shadow-indigo-600/10 disabled:opacity-50"
                   >
-                    {isProcessing ? 'Processing...' : isLpType ? 'Approve Local Purchase' : 'Approve & Release Claim'}
+                    {isProcessing 
+                      ? 'Processing...' 
+                      : lp.status === 'Revoke Pending' 
+                      ? 'Approve Revocation' 
+                      : isLpType 
+                      ? 'Approve Local Purchase' 
+                      : 'Approve & Release Claim'}
                   </button>
                 </div>
               </div>
@@ -4032,6 +4757,8 @@ function AdminLPApprovalsView({ lpRequests, users, onUpdateLpRequests, onAddToas
               <option value="Claim submitted">Claim submitted</option>
               <option value="Claim approved">Claim approved</option>
               <option value="Rejected">Rejected</option>
+              <option value="Revoke Pending">Revoke Pending</option>
+              <option value="Cancelled">Cancelled</option>
             </select>
           </div>
         </div>
@@ -4041,22 +4768,10 @@ function AdminLPApprovalsView({ lpRequests, users, onUpdateLpRequests, onAddToas
             <thead>
               <tr className="border-b border-slate-100 select-none">
                 <th
-                  onClick={() => toggleLedgerSort('id')}
-                  className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
-                >
-                  ID{renderSortIndicator('id', ledgerSortKey, ledgerSortAsc)}
-                </th>
-                <th
                   onClick={() => toggleLedgerSort('job')}
-                  className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                  className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors w-40"
                 >
                   Job ID{renderSortIndicator('job', ledgerSortKey, ledgerSortAsc)}
-                </th>
-                <th
-                  onClick={() => toggleLedgerSort('supervisor')}
-                  className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
-                >
-                  Supervisor{renderSortIndicator('supervisor', ledgerSortKey, ledgerSortAsc)}
                 </th>
                 <th
                   onClick={() => toggleLedgerSort('date')}
@@ -4082,6 +4797,15 @@ function AdminLPApprovalsView({ lpRequests, users, onUpdateLpRequests, onAddToas
                 >
                   Total Value{renderSortIndicator('total', ledgerSortKey, ledgerSortAsc)}
                 </th>
+                <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">
+                  PO Number
+                </th>
+                <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">
+                  PO Received Value
+                </th>
+                <th className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400">
+                  PO Status
+                </th>
                 <th
                   onClick={() => toggleLedgerSort('status')}
                   className="py-2.5 px-3 text-[10px] font-bold tracking-wider text-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
@@ -4093,7 +4817,7 @@ function AdminLPApprovalsView({ lpRequests, users, onUpdateLpRequests, onAddToas
             <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
               {ledgerRecords.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-6 text-slate-400 bg-slate-50/10 rounded-lg">
+                  <td colSpan={9} className="text-center py-6 text-slate-400 bg-slate-55/10 rounded-lg">
                     No ledger records match filters selected.
                   </td>
                 </tr>
@@ -4103,24 +4827,56 @@ function AdminLPApprovalsView({ lpRequests, users, onUpdateLpRequests, onAddToas
                   const supervisor = getUser(users, lp.tlEmail);
                   return (
                     <tr key={lp.id} className="hover:bg-slate-50/50">
-                      <td className="py-3 px-3">
-                        <span className="font-mono text-slate-650 bg-slate-105 px-2 py-0.5 rounded border border-slate-150">
-                          {lp.id}
-                        </span>
-                      </td>
-                      <td className="py-3 px-3">
+                      <td className="py-3 px-3 w-40">
                         <div className="text-slate-955 font-bold">{lp.jobId}</div>
                         {lp.description && (
-                          <div className="text-[10px] text-slate-400 font-normal mt-0.5 max-w-xs truncate" title={lp.description}>
+                          <div className="text-[10px] text-slate-400 font-normal mt-0.5 max-w-[16rem] truncate" title={lp.description}>
                             {lp.description}
                           </div>
                         )}
                       </td>
-                      <td className="py-3 px-3 font-bold">{supervisor.name}</td>
                       <td className="py-3 px-3 text-slate-500">{fmtDate(lp.date)}</td>
                       <td className="py-3 px-3 text-slate-600">{fmtCur(lp.spareCost)}</td>
                       <td className="py-3 px-3 text-slate-600">{fmtCur(lp.serviceCost)}</td>
                       <td className="py-3 px-3 text-indigo-650 font-bold">{fmtCur(total)}</td>
+                      <td className="py-3 px-3">
+                        {lp.poNumber ? (
+                          <span className="font-mono text-slate-750 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                            {lp.poNumber}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3">
+                        {lp.poReceivedValue !== undefined ? (
+                          <span className="font-bold text-slate-805">
+                            {fmtCur(lp.poReceivedValue)}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3">
+                        {(() => {
+                          const associatedPO = purchaseOrders.find((po) => po.poNumber === lp.poNumber);
+                          return associatedPO ? (
+                            <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wide border ${
+                              associatedPO.status === 'Dispatch Pending'
+                                ? 'bg-amber-50 border-amber-200 text-amber-800'
+                                : associatedPO.status === 'Dispatched'
+                                ? 'bg-blue-50 border-blue-200 text-blue-800'
+                                : associatedPO.status === 'Payment Received'
+                                ? 'bg-teal-50 border-teal-200 text-teal-800'
+                                : 'bg-slate-50 border-slate-200 text-slate-500'
+                            }`}>
+                              {associatedPO.status}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          );
+                        })()}
+                      </td>
                       <td className="py-3 px-3">
                         <span
                           className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide border ${
@@ -4132,6 +4888,10 @@ function AdminLPApprovalsView({ lpRequests, users, onUpdateLpRequests, onAddToas
                               ? 'bg-teal-50 border-teal-250 text-teal-800'
                               : lp.status === 'Rejected'
                               ? 'bg-rose-50 border-rose-200 text-rose-800'
+                              : lp.status === 'Revoke Pending'
+                              ? 'bg-orange-50 border-orange-205 text-orange-850'
+                              : lp.status === 'Cancelled'
+                              ? 'bg-slate-100 border-slate-205 text-slate-500'
                               : 'bg-slate-50 border-slate-200 text-slate-500'
                           }`}
                         >

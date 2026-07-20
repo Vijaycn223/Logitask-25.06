@@ -10,6 +10,10 @@ export interface Organisation {
   name: string;
   siteCode: string; // e.g. DEL-01
   createdAt?: string;
+  status: 'active' | 'suspended' | 'expired';
+  subscriptionPlan: 'free-trial' | 'basic' | 'professional' | 'enterprise';
+  subscriptionPeriodEnd?: string; // ISO date string
+  logoUrl?: string;
 }
 
 export interface User {
@@ -18,6 +22,9 @@ export interface User {
   role: UserRole;
   password?: string;
   orgId?: string; // organization ID
+  invitationStatus?: 'invited' | 'active';
+  isSuspended?: boolean;
+  sessionVersion?: number;
 }
 
 export interface SKU {
@@ -64,11 +71,12 @@ export interface ProductivityLog {
   tlNote?: string;
   adminNote?: string;
   orgId?: string; // organization ID
+  attendanceStatus?: 'Present' | 'Leave';
 }
 
 export interface AttendanceRecord {
   [email: string]: {
-    [date: string]: 'Present' | 'Absent';
+    [date: string]: 'Present' | 'Absent' | 'Leave';
   };
 }
 
@@ -122,7 +130,7 @@ export interface ReturnRequest {
 }
 
 
-export type LPRequestStatus = 'Pending' | 'Claim pending' | 'Claim submitted' | 'Claim forwarded' | 'Claim approved' | 'Rejected';
+export type LPRequestStatus = 'Pending' | 'Claim pending' | 'Claim submitted' | 'Claim forwarded' | 'Claim approved' | 'Rejected' | 'Revoke Pending' | 'Cancelled';
 
 export interface LPRequest {
   id: string; // e.g. LP-001
@@ -134,6 +142,8 @@ export interface LPRequest {
   status: LPRequestStatus;
   orgId?: string; // organization ID
   description?: string;
+  poNumber?: string; // Associated Purchase Order Number
+  poReceivedValue?: number;
 }
 
 export type AttendanceApprovalStatus = 'Pending' | 'Approved' | 'Rejected';
@@ -149,4 +159,53 @@ export interface AttendanceRequest {
   remarks?: string;
   orgId?: string; // organization ID
 }
+
+export type POStatus = 'Dispatch Pending' | 'Dispatched' | 'Payment Received (Pending Approval)' | 'Payment Received';
+
+export interface PurchaseOrder {
+  id: string;
+  poNumber: string;
+  poDate: string; // YYYY-MM-DD
+  netValue: number;
+  gstAmount: number;
+  totalValue: number;
+  status: POStatus;
+  orgId?: string; // organization ID
+  registeredBy?: string; // store manager email
+  docketNumber?: string; // tracking number assigned on dispatch
+}
+
+export interface SupplierDebit {
+  id: string; // e.g. SD-001
+  date: string; // YYYY-MM-DD
+  supplier: string; // vendor name matching vendor from PurchaseInward
+  description: string;
+  amountPaid: number;
+  orgId?: string; // organization ID
+}
+
+export interface Vendor {
+  id: string; // e.g. VN-001
+  name: string;
+  contactPerson?: string;
+  phone?: string;
+  email?: string;
+  orgId?: string; // organization ID
+}
+
+export interface SaleRecord {
+  id: string; // e.g. SL-001
+  orgId: string;
+  date: string; // YYYY-MM-DD
+  vendorId: string; // registered vendor VN-ID
+  skuId: string;
+  qty: number;
+  salePrice: number;
+  refNumber: string;
+  description: string;
+  status: 'Pending' | 'Approved' | 'Rejected';
+  submittedBy: string; // store manager email
+  adminNote?: string;
+}
+
 
