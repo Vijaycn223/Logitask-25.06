@@ -23,7 +23,10 @@ import {
   DollarSign,
   X,
   Key,
-  Boxes
+  Boxes,
+  ClipboardList,
+  Building,
+  Users
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -32,7 +35,6 @@ interface SidebarProps {
   onPageChange: (page: string) => void;
   onLogout: () => void;
   onCloseSidebar?: () => void;
-  onChangePassword: () => void;
 }
 
 // Maps of pages by role
@@ -47,10 +49,13 @@ const SIDEBAR_ITEMS: Record<UserRole, Array<{ type: 'section'; label: string } |
     { type: 'item', page: 'admin-approvals', label: 'Approval Queue', icon: CheckSquare },
     { type: 'item', page: 'admin-inventory-approve', label: 'Inventory Approvals', icon: Boxes },
     { type: 'item', page: 'admin-lp-approvals', label: 'LP Approvals', icon: DollarSign },
+    { type: 'item', page: 'admin-po-tracker', label: 'PO Tracker', icon: ClipboardList },
+    { type: 'item', page: 'admin-sales', label: 'B2B Sales', icon: DollarSign },
     { type: 'section', label: 'Reports' },
     { type: 'item', page: 'admin-engineer-dashboard', label: 'Engineer Dashboard', icon: LayoutDashboard },
     { type: 'item', page: 'admin-attendance', label: 'Attendance Register', icon: Calendar },
     { type: 'item', page: 'admin-inventory', label: 'Store Inventory', icon: Layers },
+    { type: 'item', page: 'admin-supplier-ledger', label: 'Supplier Ledger', icon: BookOpen },
     { type: 'item', page: 'admin-pl', label: 'P&L Report', icon: TrendingUp },
     { type: 'section', label: 'Registry' },
     { type: 'item', page: 'admin-sku-registry', label: 'SKU Registry', icon: Tag },
@@ -62,13 +67,17 @@ const SIDEBAR_ITEMS: Record<UserRole, Array<{ type: 'section'; label: string } |
     { type: 'section', label: 'Workflow' },
     { type: 'item', page: 'store-approvals', label: 'Productivity Queue', icon: CheckSquare },
     { type: 'item', page: 'store-lp', label: 'LP Claims Validation', icon: DollarSign },
+    { type: 'item', page: 'store-sales', label: 'B2B Sales', icon: DollarSign },
     { type: 'item', page: 'store-attendance', label: 'Mark Attendance', icon: Calendar },
+    { type: 'item', page: 'store-po-tracker', label: 'PO Tracker', icon: ClipboardList },
     { type: 'section', label: 'Inventory' },
     { type: 'item', page: 'store-inward', label: 'Purchase Inward', icon: Truck },
     { type: 'item', page: 'store-requests', label: 'Stock Requests', icon: Inbox },
     { type: 'item', page: 'store-inventory', label: 'Inventory Report', icon: Layers },
+    { type: 'item', page: 'store-supplier-ledger', label: 'Supplier Ledger', icon: BookOpen },
     { type: 'section', label: 'Registry' },
     { type: 'item', page: 'store-sku-registry', label: 'SKU Registry', icon: Tag },
+    { type: 'item', page: 'store-vendor-registry', label: 'Vendor Registry', icon: Building },
   ],
   'Team Leader': [
     { type: 'section', label: 'Overview' },
@@ -77,6 +86,7 @@ const SIDEBAR_ITEMS: Record<UserRole, Array<{ type: 'section'; label: string } |
     { type: 'item', page: 'tl-approvals', label: 'Validation Queue', icon: CheckSquare },
     { type: 'item', page: 'tl-lp-requests', label: 'Local Purchase', icon: DollarSign },
     { type: 'item', page: 'tl-attendance', label: 'Mark Attendance', icon: Calendar },
+    { type: 'item', page: 'tl-engineer-attendance', label: 'Engineer Attendance', icon: Users },
   ],
   'Engineer': [
     { type: 'section', label: 'My Work' },
@@ -87,7 +97,7 @@ const SIDEBAR_ITEMS: Record<UserRole, Array<{ type: 'section'; label: string } |
   ],
 };
 
-export function Sidebar({ currentUser, activeTab, onPageChange, onLogout, onCloseSidebar, onChangePassword }: SidebarProps) {
+export function Sidebar({ currentUser, activeTab, onPageChange, onLogout, onCloseSidebar }: SidebarProps) {
   const items = SIDEBAR_ITEMS[currentUser.role] || [];
   const initial = currentUser.name.charAt(0).toUpperCase();
 
@@ -160,15 +170,6 @@ export function Sidebar({ currentUser, activeTab, onPageChange, onLogout, onClos
             <p className="truncate text-xs font-medium text-slate-400">
               {currentUser.role}
             </p>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <button
-              onClick={onChangePassword}
-              title="Change Password"
-              className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-900 transition"
-            >
-              <Key className="h-5 w-5 text-slate-400" />
-            </button>
           </div>
         </div>
       </div>

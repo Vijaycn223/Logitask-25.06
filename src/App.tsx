@@ -86,6 +86,28 @@ const STORAGE_KEYS = {
   SALES: 'fieldops_sales',
 };
 
+const isDatesEqual = (a: Record<string, string> | undefined, b: Record<string, string> | undefined): boolean => {
+  if (!a || !b) return a === b;
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  for (const key of keysA) {
+    if (a[key] !== b[key]) return false;
+  }
+  return true;
+};
+
+const isAttendanceEqual = (a: AttendanceRecord | undefined, b: AttendanceRecord | undefined): boolean => {
+  if (!a || !b) return a === b;
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  for (const email of keysA) {
+    if (!isDatesEqual(a[email], b[email])) return false;
+  }
+  return true;
+};
+
 export default function App() {
   const getStoredOrDefault = <T,>(key: string, defaultValue: T): T => {
     const item = localStorage.getItem(key);
@@ -377,7 +399,7 @@ export default function App() {
         }
       });
       setAttendance((prev) => {
-        if (JSON.stringify(prev) === JSON.stringify(obj)) return prev;
+        if (isAttendanceEqual(prev, obj)) return prev;
         localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(obj));
         return obj;
       });
@@ -628,27 +650,27 @@ export default function App() {
         const skusList = value as SKU[];
         const activeOrgId = currentUser?.orgId || 'org-001';
         if (currentUser?.role === 'Super Admin') {
-          const currentDocIds = skusList.map(s => s.id);
-          const deletedSkus = skus.filter((s) => !currentDocIds.includes(s.id));
+          const currentDocIds = skusList.map(s => `${s.orgId || 'org-001'}_${s.id}`);
+          const deletedSkus = skus.filter((s) => !currentDocIds.includes(`${s.orgId || 'org-001'}_${s.id}`));
           for (const ds of deletedSkus) {
-            await deleteDocument('skus', ds.id);
+            await deleteDocument('skus', `${ds.orgId || 'org-001'}_${ds.id}`);
           }
           for (const s of skusList) {
-            const docId = s.id;
-            const existing = skus.find((x) => x.id === s.id);
+            const docId = `${s.orgId || 'org-001'}_${s.id}`;
+            const existing = skus.find((x) => x.id === s.id && (x.orgId || 'org-001') === (s.orgId || 'org-001'));
             if (!existing || JSON.stringify(existing) !== JSON.stringify(s)) {
               await writeDocument('skus', docId, s);
             }
           }
         } else {
-          const currentDocIds = skusList.map(s => s.id);
-          const deletedSkus = skus.filter((s) => s.orgId === activeOrgId && !currentDocIds.includes(s.id));
+          const currentDocIds = skusList.map(s => `${s.orgId || activeOrgId}_${s.id}`);
+          const deletedSkus = skus.filter((s) => s.orgId === activeOrgId && !currentDocIds.includes(`${s.orgId || activeOrgId}_${s.id}`));
           for (const ds of deletedSkus) {
-            await deleteDocument('skus', ds.id);
+            await deleteDocument('skus', `${ds.orgId || activeOrgId}_${ds.id}`);
           }
           for (const s of skusList) {
-            const docId = s.id;
-            const existing = skus.find((x) => x.id === s.id);
+            const docId = `${s.orgId || activeOrgId}_${s.id}`;
+            const existing = skus.find((x) => x.id === s.id && (x.orgId || activeOrgId) === (s.orgId || activeOrgId));
             const updatedSku = { ...s, orgId: s.orgId || activeOrgId };
             if (!existing || JSON.stringify(existing) !== JSON.stringify(updatedSku)) {
               await writeDocument('skus', docId, updatedSku);
@@ -684,7 +706,7 @@ export default function App() {
         const attendanceObj = value as AttendanceRecord;
         for (const [email, dates] of Object.entries(attendanceObj)) {
           const existing = attendance[email];
-          if (!existing || JSON.stringify(existing) !== JSON.stringify(dates)) {
+          if (!existing || !isDatesEqual(existing, dates)) {
             await writeDocument('attendance', email, { email, dates });
           }
         }

@@ -162,7 +162,7 @@ export async function seedInitialDatabaseIfEmpty() {
     if (skusSnap.empty) {
       console.log("Seeding SKUs collection...");
       for (const sku of INITIAL_SKUS) {
-        await setDoc(doc(db, 'skus', sku.id), { ...sku, orgId: 'org-001' });
+        await setDoc(doc(db, 'skus', `org-001_${sku.id}`), { ...sku, orgId: 'org-001' });
       }
     }
 
@@ -257,7 +257,7 @@ export async function forceResetDatabaseToSeed() {
       await setDoc(doc(db, 'users', user.email), user);
     }
     for (const sku of INITIAL_SKUS) {
-      await setDoc(doc(db, 'skus', sku.id), { ...sku, orgId: 'org-001' });
+      await setDoc(doc(db, 'skus', `org-001_${sku.id}`), { ...sku, orgId: 'org-001' });
     }
     for (const item of INITIAL_MAIN_INVENTORY) {
       await setDoc(doc(db, 'inventory', `org-001_${item.skuId}`), { ...item, orgId: 'org-001' });

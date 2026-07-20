@@ -123,7 +123,7 @@ export function SuperAdminPages({
       return;
     }
 
-    const targetOrgId = editingOrg ? editingOrg.id : normalizedSiteCode;
+    const targetOrgId = editingOrg ? editingOrg.id : `org-${Date.now().toString()}`;
     let nextUsers = [...users];
 
     // Validate admin details if configured

@@ -93,6 +93,7 @@ export function EngineerPages({
 
   // Resubmission modal state
   const [resubmitLog, setResubmitLog] = useState<ProductivityLog | null>(null);
+  const [resubmitAttendanceStatus, setResubmitAttendanceStatus] = useState<'Present' | 'Leave'>('Present');
   const [resubmitCalls, setResubmitCalls] = useState('');
   const [resubmitRcp, setResubmitRcp] = useState('');
   const [resubmitRcpQty, setResubmitRcpQty] = useState('');
@@ -101,6 +102,7 @@ export function EngineerPages({
 
   const handleStartResubmit = (log: ProductivityLog) => {
     setResubmitLog(log);
+    setResubmitAttendanceStatus(log.attendanceStatus || 'Present');
     setResubmitCalls(String(log.callsClosed));
     setResubmitRcp(String(log.rcpCollected || 0));
     setResubmitRcpQty(String(log.rcpQty || 0));
@@ -115,33 +117,50 @@ export function EngineerPages({
     e.preventDefault();
     if (!resubmitLog || !onUpdateLogs) return;
 
-    const callsClosed = parseInt(resubmitCalls, 10);
-    if (isNaN(callsClosed) || callsClosed < 0) {
-      onAddToast('Please enter a valid call output', 'error');
-      return;
-    }
+    let callsClosed = 0;
+    let rcpVal = 0;
+    let rcpQtyVal = 0;
+    let finalAccessories: { skuId: string; qty: number; saleValue: number }[] = [];
 
-    const rcpVal = parseFloat(resubmitRcp);
-    if (resubmitRcp !== '' && (isNaN(rcpVal) || rcpVal < 0)) {
-      onAddToast('Please enter a valid RCP collected amount', 'error');
-      return;
-    }
-
-    const rcpQtyVal = parseInt(resubmitRcpQty, 10);
-    if (resubmitRcpQty !== '' && (isNaN(rcpQtyVal) || rcpQtyVal < 0)) {
-      onAddToast('Please enter a valid RCP quantity', 'error');
-      return;
-    }
-
-    // Verify van stocks
-    const vanStock = engineerStock[currentUser.email] || [];
-    for (const line of resubmitLines) {
-      const stockItem = vanStock.find((s) => s.skuId === line.skuId);
-      const stockQty = stockItem ? stockItem.qty : 0;
-      if (line.qty > stockQty) {
-        onAddToast(`Insufficient stocks inside van for ${getSku(skus, line.skuId).name} (Vantrunk: ${stockQty})`, 'error');
+    if (resubmitAttendanceStatus === 'Present') {
+      callsClosed = parseInt(resubmitCalls, 10);
+      if (isNaN(callsClosed) || callsClosed < 0) {
+        onAddToast('Please enter a valid call output', 'error');
         return;
       }
+
+      rcpVal = parseFloat(resubmitRcp);
+      if (resubmitRcp !== '' && (isNaN(rcpVal) || rcpVal < 0)) {
+        onAddToast('Please enter a valid RCP collected amount', 'error');
+        return;
+      }
+
+      rcpQtyVal = parseInt(resubmitRcpQty, 10);
+      if (resubmitRcpQty !== '' && (isNaN(rcpQtyVal) || rcpQtyVal < 0)) {
+        onAddToast('Please enter a valid RCP quantity', 'error');
+        return;
+      }
+
+      // Verify van stocks
+      const vanStock = engineerStock[currentUser.email] || [];
+      const skuAggregates: Record<string, number> = {};
+      for (const line of resubmitLines) {
+        skuAggregates[line.skuId] = (skuAggregates[line.skuId] || 0) + Number(line.qty);
+      }
+      for (const [skuId, qty] of Object.entries(skuAggregates)) {
+        const stockItem = vanStock.find((s) => s.skuId === skuId);
+        const stockQty = stockItem ? stockItem.qty : 0;
+        if (qty > stockQty) {
+          onAddToast(`Insufficient stocks inside van for ${getSku(skus, skuId).name} (Trunk: ${stockQty}, Requested: ${qty})`, 'error');
+          return;
+        }
+      }
+
+      finalAccessories = resubmitLines.map(line => ({
+        skuId: line.skuId,
+        qty: line.qty,
+        saleValue: typeof line.saleValue === 'number' ? line.saleValue : (parseFloat(line.saleValue) || 0)
+      }));
     }
 
     const updatedLogs = productivityLogs.map(l => {
@@ -149,16 +168,13 @@ export function EngineerPages({
         return {
           ...l,
           callsClosed,
-          rcpCollected: rcpVal || 0,
-          rcpQty: rcpQtyVal || 0,
-          accessories: resubmitLines.map(line => ({
-            skuId: line.skuId,
-            qty: line.qty,
-            saleValue: typeof line.saleValue === 'number' ? line.saleValue : (parseFloat(line.saleValue) || 0)
-          })),
+          rcpCollected: rcpVal,
+          rcpQty: rcpQtyVal,
+          accessories: finalAccessories,
           status: 'Pending' as const,
           tlNote: '',
-          adminNote: ''
+          adminNote: '',
+          attendanceStatus: resubmitAttendanceStatus
         };
       }
       return l;
@@ -359,7 +375,7 @@ export function EngineerPages({
       if (attStatus === 'Present') {
         cellClass += 'bg-emerald-50 border-emerald-300 text-emerald-950';
         statusIndicator = <span className="h-1 w-1 rounded-full bg-emerald-500 self-center"></span>;
-      } else if (isPast && !attStatus && dateObj.getDay() !== 0) { // skip sundays for auto-absent visual
+      } else if (isPast && !attStatus) { // highlight unmarked past days as absent visual
         cellClass += 'bg-rose-50 border-rose-200 text-rose-950';
         statusIndicator = <span className="h-1 w-1 rounded-full bg-rose-400 self-center"></span>;
       } else {
@@ -392,6 +408,7 @@ export function EngineerPages({
               currentUser={currentUser} 
               skus={skus} 
               engineerStock={engineerStock} 
+              productivityLogs={logs}
               onAddProductivityLog={onAddProductivityLog} 
               onAddToast={onAddToast}
             />
@@ -572,153 +589,203 @@ export function EngineerPages({
               )}
 
               <form onSubmit={handleResubmitSubmit} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold tracking-wider text-slate-500 mb-1.5">
-                      Calls Closed
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      required
-                      value={resubmitCalls}
-                      onChange={(e) => setResubmitCalls(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50/20 px-3.5 py-2.5 text-xs font-semibold outline-none focus:border-indigo-600 focus:bg-white"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold tracking-wider text-slate-500 mb-1.5">
-                      RCP Collected (₹)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      required
-                      value={resubmitRcp}
-                      onChange={(e) => setResubmitRcp(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50/20 px-3.5 py-2.5 text-xs font-semibold outline-none focus:border-indigo-600 focus:bg-white"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold tracking-wider text-slate-500 mb-1.5">
-                      RCP Qty
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      required
-                      value={resubmitRcpQty}
-                      onChange={(e) => setResubmitRcpQty(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50/20 px-3.5 py-2.5 text-xs font-semibold outline-none focus:border-indigo-600 focus:bg-white"
-                    />
-                  </div>
-                </div>
-
-                {/* Accessories list */}
-                <div className="space-y-3 pt-3 border-t border-slate-100">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-900">Accessories Sold On Jobs</span>
+                <div>
+                  <label className="block text-xs font-bold tracking-wider text-slate-500 mb-1.5">
+                    Attendance Status
+                  </label>
+                  <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={() => {
-                        const vanStock = engineerStock[currentUser.email] || [];
-                        const firstStockAvailableSku = skus.find((s) => {
-                          const vsItem = vanStock.find((x) => x.skuId === s.id);
-                          return vsItem && vsItem.qty > 0;
-                        });
-                        const initialSku = firstStockAvailableSku?.id || skus[0]?.id || '';
-                        setResubmitLines([...resubmitLines, { skuId: initialSku, qty: 1, saleValue: '' }]);
-                      }}
-                      className="text-xs font-bold text-indigo-650 bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded transition"
+                      onClick={() => setResubmitAttendanceStatus('Present')}
+                      className={`flex-1 py-2 px-3 text-xs font-bold rounded-xl border transition cursor-pointer select-none ${
+                        resubmitAttendanceStatus === 'Present'
+                          ? 'bg-indigo-600 border-indigo-600 text-white shadow-md'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                      }`}
                     >
-                      + Add Accessory
+                      Present
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setResubmitAttendanceStatus('Leave')}
+                      className={`flex-1 py-2 px-3 text-xs font-bold rounded-xl border transition cursor-pointer select-none ${
+                        resubmitAttendanceStatus === 'Leave'
+                          ? 'bg-rose-600 border-rose-600 text-white shadow-md'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      Leave
                     </button>
                   </div>
-
-                  {resubmitLines.length === 0 ? (
-                    <p className="text-xs text-slate-400 text-center py-2 italic border border-dashed border-slate-100 rounded-xl">
-                      No accessories listed for this submission.
-                    </p>
-                  ) : (
-                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                      {resubmitLines.map((ln, idx) => {
-                        const vanStock = engineerStock[currentUser.email] || [];
-                        const stockItem = vanStock.find((v) => v.skuId === ln.skuId);
-                        const stockQty = stockItem ? stockItem.qty : 0;
-
-                        return (
-                          <div key={idx} className="flex flex-col sm:flex-row items-center gap-2 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                            <select
-                              value={ln.skuId}
-                              onChange={(e) => {
-                                const updated = [...resubmitLines];
-                                updated[idx] = { ...updated[idx], skuId: e.target.value };
-                                setResubmitLines(updated);
-                              }}
-                              className="w-full sm:w-1/2 rounded-lg border border-slate-200 bg-white py-1 px-2 text-xs font-semibold focus:border-indigo-600 outline-none"
-                            >
-                              {skus
-                                .filter((s) => {
-                                  const vsItem = vanStock.find((x) => x.skuId === s.id);
-                                  const vQty = vsItem ? vsItem.qty : 0;
-                                  return vQty > 0 || s.id === ln.skuId;
-                                })
-                                .map((s) => {
-                                  const vsItem = vanStock.find((x) => x.skuId === s.id);
-                                  const vQty = vsItem ? vsItem.qty : 0;
-                                  return (
-                                    <option key={s.id} value={s.id}>
-                                      {s.id} - {s.name} (Van Trunk: {vQty})
-                                    </option>
-                                  );
-                                })}
-                            </select>
-
-                            <input
-                              type="number"
-                              min="1"
-                              required
-                              placeholder="Qty"
-                              value={ln.qty}
-                              onChange={(e) => {
-                                const updated = [...resubmitLines];
-                                updated[idx] = { ...updated[idx], qty: parseInt(e.target.value, 10) || 0 };
-                                setResubmitLines(updated);
-                              }}
-                              className="w-full sm:w-20 rounded-lg border border-slate-200 bg-white py-1 px-2 text-xs font-semibold focus:border-indigo-600 outline-none"
-                            />
-
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              required
-                              placeholder="Price"
-                              value={ln.saleValue}
-                              onChange={(e) => {
-                                const updated = [...resubmitLines];
-                                updated[idx] = { ...updated[idx], saleValue: e.target.value };
-                                setResubmitLines(updated);
-                              }}
-                              className="w-full sm:w-24 rounded-lg border border-slate-200 bg-white py-1 px-2 text-xs font-semibold focus:border-indigo-600 outline-none"
-                            />
-
-                            <button
-                              type="button"
-                              onClick={() => setResubmitLines(resubmitLines.filter((_, i) => i !== idx))}
-                              className="text-rose-600 hover:text-rose-800 text-xs font-bold px-2 self-end sm:self-center"
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
                 </div>
+
+                {resubmitAttendanceStatus === 'Leave' && (
+                  <div className="rounded-xl border border-rose-100 bg-rose-50/50 p-4 text-xs font-semibold text-rose-800 text-center">
+                    📅 You are logging Leave for this date. No performance or stock movements will be registered.
+                  </div>
+                )}
+
+                {resubmitAttendanceStatus === 'Present' && (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="flex items-end h-8 text-xs font-bold tracking-wider text-slate-500 mb-1.5">
+                          Calls Closed
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          required
+                          value={resubmitCalls}
+                          onChange={(e) => setResubmitCalls(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50/20 px-3.5 py-2.5 text-xs font-semibold outline-none focus:border-indigo-600 focus:bg-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="flex items-end h-8 text-xs font-bold tracking-wider text-slate-500 mb-1.5">
+                          RCP Collected (₹)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          required
+                          value={resubmitRcp}
+                          onChange={(e) => setResubmitRcp(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50/20 px-3.5 py-2.5 text-xs font-semibold outline-none focus:border-indigo-600 focus:bg-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="flex items-end h-8 text-xs font-bold tracking-wider text-slate-500 mb-1.5">
+                          RCP Qty
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          required
+                          value={resubmitRcpQty}
+                          onChange={(e) => setResubmitRcpQty(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50/20 px-3.5 py-2.5 text-xs font-semibold outline-none focus:border-indigo-600 focus:bg-white"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Accessories list */}
+                    <div className="space-y-3 pt-3 border-t border-slate-100">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-900">Accessories Sold On Jobs</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const vanStock = engineerStock[currentUser.email] || [];
+                            const firstStockAvailableSku = skus.find((s) => {
+                              const vsItem = vanStock.find((x) => x.skuId === s.id);
+                              return vsItem && vsItem.qty > 0;
+                            });
+                            const initialSku = firstStockAvailableSku?.id || skus[0]?.id || '';
+                            setResubmitLines([...resubmitLines, { skuId: initialSku, qty: 1, saleValue: '' }]);
+                          }}
+                          className="text-xs font-bold text-indigo-650 bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded transition"
+                        >
+                          + Add Accessory
+                        </button>
+                      </div>
+
+                      {resubmitLines.length === 0 ? (
+                        <p className="text-xs text-slate-400 text-center py-2 italic border border-dashed border-slate-100 rounded-xl">
+                          No accessories listed for this submission.
+                        </p>
+                      ) : (
+                        <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                          {resubmitLines.map((ln, idx) => {
+                            const vanStock = engineerStock[currentUser.email] || [];
+                            const stockItem = vanStock.find((v) => v.skuId === ln.skuId);
+                            const alreadyUsed = resubmitLines
+                               .filter((l, i) => l.skuId === ln.skuId && i !== idx)
+                               .reduce((sum, l) => sum + Number(l.qty), 0);
+                             const stockQty = stockItem ? Math.max(0, stockItem.qty - alreadyUsed) : 0;
+                             const isInvalid = ln.qty > stockQty;
+
+                            return (
+                              <div key={idx} className={`flex flex-col sm:flex-row items-center gap-2 bg-slate-50 p-2.5 rounded-lg border ${isInvalid ? 'border-rose-350 bg-rose-50/10' : 'border-slate-100'}`}>
+                                <select
+                                  value={ln.skuId}
+                                  onChange={(e) => {
+                                    const updated = [...resubmitLines];
+                                    updated[idx] = { ...updated[idx], skuId: e.target.value };
+                                    setResubmitLines(updated);
+                                  }}
+                                  className="w-full sm:w-1/2 rounded-lg border border-slate-200 bg-white py-1 px-2 text-xs font-semibold focus:border-indigo-600 outline-none"
+                                >
+                                  {skus
+                                    .filter((s) => {
+                                       const vsItem = vanStock.find((x) => x.skuId === s.id);
+                                       const alreadyUsed = resubmitLines
+                                         .filter((l, i) => l.skuId === s.id && i !== idx)
+                                         .reduce((sum, l) => sum + Number(l.qty), 0);
+                                       const remaining = (vsItem ? vsItem.qty : 0) - alreadyUsed;
+                                       return remaining > 0 || s.id === ln.skuId;
+                                    })
+                                    .map((s) => {
+                                       const vsItem = vanStock.find((x) => x.skuId === s.id);
+                                       const alreadyUsed = resubmitLines
+                                         .filter((l, i) => l.skuId === s.id && i !== idx)
+                                         .reduce((sum, l) => sum + Number(l.qty), 0);
+                                       const vQty = vsItem ? Math.max(0, vsItem.qty - alreadyUsed) : 0;
+                                      return (
+                                        <option key={s.id} value={s.id}>
+                                          {s.id} - {s.name} (Van Trunk: {vQty})
+                                        </option>
+                                      );
+                                    })}
+                                </select>
+
+                                <input
+                                   type="number"
+                                   min="1"
+                                   required
+                                   placeholder="Qty"
+                                   value={ln.qty}
+                                   onChange={(e) => {
+                                     const updated = [...resubmitLines];
+                                     updated[idx] = { ...updated[idx], qty: parseInt(e.target.value, 10) || 0 };
+                                     setResubmitLines(updated);
+                                   }}
+                                   className={`w-full sm:w-20 rounded-lg border bg-white py-1 px-2 text-xs font-semibold outline-none ${isInvalid ? 'border-rose-400 text-rose-800 focus:border-rose-500 focus:ring-1 focus:ring-rose-100' : 'border-slate-200 focus:border-indigo-600'}`}
+                                 />
+
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  required
+                                  placeholder="Price"
+                                  value={ln.saleValue}
+                                  onChange={(e) => {
+                                    const updated = [...resubmitLines];
+                                    updated[idx] = { ...updated[idx], saleValue: e.target.value };
+                                    setResubmitLines(updated);
+                                  }}
+                                  className="w-full sm:w-24 rounded-lg border border-slate-200 bg-white py-1 px-2 text-xs font-semibold focus:border-indigo-600 outline-none"
+                                />
+
+                                <button
+                                  type="button"
+                                  onClick={() => setResubmitLines(resubmitLines.filter((_, i) => i !== idx))}
+                                  className="text-rose-600 hover:text-rose-800 text-xs font-bold px-2 self-end sm:self-center"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
 
                 <div className="flex justify-end gap-2.5 pt-4 border-t border-slate-100">
                   <button
@@ -1206,16 +1273,19 @@ function LogProductivityTab({
   currentUser,
   skus,
   engineerStock,
+  productivityLogs,
   onAddProductivityLog,
   onAddToast,
 }: {
   currentUser: User;
   skus: SKU[];
   engineerStock: EngineerStock;
+  productivityLogs: ProductivityLog[];
   onAddProductivityLog: (log: ProductivityLog) => void;
   onAddToast: (msg: string, type?: 'success' | 'error') => void;
 }) {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [attendanceStatus, setAttendanceStatus] = useState<'Present' | 'Leave'>('Present');
   const [calls, setCalls] = useState('');
   const [rcpCollected, setRcpCollected] = useState('');
   const [rcpQty, setRcpQty] = useState('');
@@ -1291,32 +1361,55 @@ function LogProductivityTab({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const callsClosed = parseInt(calls, 10);
-    if (isNaN(callsClosed) || callsClosed < 0) {
-      onAddToast('Please enter a valid call output code', 'error');
+
+    // Double check duplicate submits for selected date
+    const existingLogForDate = productivityLogs.find(
+      (l) => l.engEmail === currentUser.email && l.date === date
+    );
+    if (existingLogForDate) {
+      onAddToast('A log has already been submitted for this date.', 'error');
       return;
     }
 
-    const rcpVal = parseFloat(rcpCollected);
-    if (rcpCollected !== '' && (isNaN(rcpVal) || rcpVal < 0)) {
-      onAddToast('Please enter a valid RCP collected amount', 'error');
-      return;
-    }
+    let callsClosed = 0;
+    let rcpVal = 0;
+    let rcpQtyVal = 0;
+    let finalAccessories: { skuId: string; qty: number; saleValue: number }[] = [];
 
-    const rcpQtyVal = parseInt(rcpQty, 10);
-    if (rcpQty !== '' && (isNaN(rcpQtyVal) || rcpQtyVal < 0)) {
-      onAddToast('Please enter a valid RCP quantity', 'error');
-      return;
-    }
-
-    // Verify van stocks for each line item
-    for (const line of lines) {
-      const stockItem = vanStock.find((s) => s.skuId === line.skuId);
-      const stockQty = stockItem ? stockItem.qty : 0;
-      if (line.qty > stockQty) {
-        onAddToast(`Insufficient stocks inside van for ${getSku(skus, line.skuId).name} (Vantrunk: ${stockQty})`, 'error');
+    if (attendanceStatus === 'Present') {
+      callsClosed = parseInt(calls, 10);
+      if (isNaN(callsClosed) || callsClosed < 0) {
+        onAddToast('Please enter a valid calls closed count', 'error');
         return;
       }
+
+      rcpVal = parseFloat(rcpCollected);
+      if (rcpCollected !== '' && (isNaN(rcpVal) || rcpVal < 0)) {
+        onAddToast('Please enter a valid RCP collected amount', 'error');
+        return;
+      }
+
+      rcpQtyVal = parseInt(rcpQty, 10);
+      if (rcpQty !== '' && (isNaN(rcpQtyVal) || rcpQtyVal < 0)) {
+        onAddToast('Please enter a valid RCP quantity', 'error');
+        return;
+      }
+
+      // Verify van stocks for each line item
+      for (const line of lines) {
+        const stockItem = vanStock.find((s) => s.skuId === line.skuId);
+        const stockQty = stockItem ? stockItem.qty : 0;
+        if (line.qty > stockQty) {
+          onAddToast(`Insufficient stocks inside van for ${getSku(skus, line.skuId).name} (Vantrunk: ${stockQty})`, 'error');
+          return;
+        }
+      }
+
+      finalAccessories = lines.map((l) => ({
+        skuId: l.skuId,
+        qty: l.qty,
+        saleValue: typeof l.saleValue === 'number' ? l.saleValue : (parseFloat(l.saleValue) || 0),
+      }));
     }
 
     const newLog: ProductivityLog = {
@@ -1324,16 +1417,13 @@ function LogProductivityTab({
       engEmail: currentUser.email,
       date,
       callsClosed,
-      rcpCollected: rcpVal || 0,
-      rcpQty: rcpQtyVal || 0,
-      accessories: lines.map((l) => ({
-        skuId: l.skuId,
-        qty: l.qty,
-        saleValue: typeof l.saleValue === 'number' ? l.saleValue : (parseFloat(l.saleValue) || 0),
-      })),
+      rcpCollected: rcpVal,
+      rcpQty: rcpQtyVal,
+      accessories: finalAccessories,
       status: 'Pending',
       tlNote: '',
       adminNote: '',
+      attendanceStatus,
     };
 
     onAddProductivityLog(newLog);
@@ -1342,8 +1432,19 @@ function LogProductivityTab({
     setRcpCollected('');
     setRcpQty('');
     setLines([]);
-    onAddToast('Daily performance record saved successfully!');
+    setAttendanceStatus('Present');
+    onAddToast(
+      attendanceStatus === 'Leave' 
+        ? 'Daily leave recorded successfully!' 
+        : 'Daily performance record saved successfully!'
+    );
   };
+
+  const existingLog = productivityLogs.find(
+    (l) => l.engEmail === currentUser.email && l.date === date
+  );
+  const isAlreadySubmitted = !!existingLog;
+  const isRejected = existingLog?.status === 'Rejected';
 
   return (
     <div className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
@@ -1352,7 +1453,7 @@ function LogProductivityTab({
         Log Daily Performance
       </h2>
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-bold tracking-wider text-slate-500 mb-1.5">
               Date
@@ -1369,205 +1470,279 @@ function LogProductivityTab({
 
           <div>
             <label className="block text-xs font-bold tracking-wider text-slate-500 mb-1.5">
-              Calls Closed
+              Attendance Status
             </label>
-            <input
-              type="number"
-              min="0"
-              required
-              value={calls}
-              onChange={(e) => setCalls(e.target.value)}
-              placeholder="e.g. 5"
-              className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-semibold outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-150"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold tracking-wider text-slate-500 mb-1.5">
-              RCP Collected (₹)
-            </label>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              required
-              value={rcpCollected}
-              onChange={(e) => setRcpCollected(e.target.value)}
-              placeholder="e.g. 4500"
-              className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-semibold outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-150"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold tracking-wider text-slate-500 mb-1.5">
-              RCP Qty
-            </label>
-            <input
-              type="number"
-              min="0"
-              required
-              value={rcpQty}
-              onChange={(e) => setRcpQty(e.target.value)}
-              placeholder="e.g. 2"
-              className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-semibold outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-150"
-            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={isAlreadySubmitted}
+                onClick={() => setAttendanceStatus('Present')}
+                className={`flex-1 py-3 px-3 text-xs font-bold rounded-xl border transition cursor-pointer select-none ${
+                  attendanceStatus === 'Present'
+                    ? 'bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-600/10'
+                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                Present
+              </button>
+              <button
+                type="button"
+                disabled={isAlreadySubmitted}
+                onClick={() => setAttendanceStatus('Leave')}
+                className={`flex-1 py-3 px-3 text-xs font-bold rounded-xl border transition cursor-pointer select-none ${
+                  attendanceStatus === 'Leave'
+                    ? 'bg-rose-600 border-rose-600 text-white shadow-md shadow-rose-600/10'
+                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                Leave
+              </button>
+            </div>
           </div>
         </div>
 
-        <div className="border-t border-slate-100 pt-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-display text-xs font-bold text-slate-900 uppercase tracking-wider">
-              ACCESSORIES SOLD ON JOBS
-            </h3>
-            {lines.length === 0 && (
-              <span className="text-xs font-bold text-slate-400">
-                Add items first to record them
-              </span>
+        {isAlreadySubmitted && (
+          <div className={`rounded-xl p-4 text-xs font-semibold leading-relaxed border ${
+            isRejected 
+              ? 'bg-rose-50 border-rose-200 text-rose-800' 
+              : 'bg-amber-50 border-amber-200 text-amber-800'
+          }`}>
+            {isRejected ? (
+              <p>
+                ⚠️ The performance log for <strong>{date}</strong> has been rejected. 
+                Please use the <strong>Re-submit</strong> button in the Log History panel below to correct and resubmit.
+              </p>
+            ) : (
+              <p>
+                ⚠️ A performance log has already been submitted for <strong>{date}</strong> (Status: <strong>{existingLog?.status}</strong>). 
+                You cannot submit duplicate logs for the same date.
+              </p>
             )}
           </div>
+        )}
 
-          <div className="rounded-2xl border border-slate-200/50 bg-slate-50/10 p-5 shadow-sm space-y-4">
-            <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-indigo-950">
-              <span className="h-2 w-2 rounded-full bg-indigo-650 inline-block"></span>
-              NEW SKU ITEM ADDITION
-            </div>
+        {!isAlreadySubmitted && attendanceStatus === 'Leave' && (
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 text-xs font-semibold text-indigo-900 leading-relaxed text-center">
+            📅 You are logging Leave for this date. No performance or stock movements will be registered.
+          </div>
+        )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
-              <div className="sm:col-span-5">
-                <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                  Product SKU / Availability
-                </label>
-                <select
-                  value={newSkuId}
-                  onChange={(e) => setNewSkuId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-semibold outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-150"
-                >
-                  <option value="">Select SKU...</option>
-                  {skus
-                    .filter((s) => {
-                      const vsItem = vanStock.find((x) => x.skuId === s.id);
-                      return vsItem && vsItem.qty > 0;
-                    })
-                    .map((s) => {
-                      return (
-                        <option key={s.id} value={s.id}>
-                          {s.id} - {s.name}
-                        </option>
-                      );
-                    })}
-                </select>
-              </div>
-
-              <div className="sm:col-span-2">
-                <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                  Qty Sold
+        {!isAlreadySubmitted && attendanceStatus === 'Present' && (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border-t border-slate-100 pt-5">
+              <div>
+                <label className="flex items-end h-8 text-xs font-bold tracking-wider text-slate-500 mb-1.5">
+                  Calls Closed
                 </label>
                 <input
                   type="number"
-                  min="1"
-                  value={newQty}
-                  onChange={(e) => setNewQty(e.target.value)}
+                  min="0"
+                  required
+                  value={calls}
+                  onChange={(e) => setCalls(e.target.value)}
+                  placeholder="e.g. 5"
                   className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-semibold outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-150"
                 />
               </div>
 
-              <div className="sm:col-span-3">
-                <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                  Sale Value (₹)
+              <div>
+                <label className="flex items-end h-8 text-xs font-bold tracking-wider text-slate-500 mb-1.5">
+                  RCP Collected (₹)
                 </label>
                 <input
                   type="number"
                   min="0"
                   step="0.01"
-                  value={newSaleValue}
-                  onChange={(e) => setNewSaleValue(e.target.value)}
-                  placeholder="e.g. 500"
+                  required
+                  value={rcpCollected}
+                  onChange={(e) => setRcpCollected(e.target.value)}
+                  placeholder="e.g. 4500"
                   className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-semibold outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-150"
                 />
               </div>
 
-              <div className="sm:col-span-2">
-                <button
-                  type="button"
-                  onClick={handleAddNewLine}
-                  className="w-full flex items-center justify-center rounded-xl bg-indigo-900 hover:bg-slate-900 text-white font-extrabold py-3 text-sm transition shadow-md shadow-indigo-900/10 cursor-pointer h-[46px]"
-                >
-                  Add
-                </button>
+              <div>
+                <label className="flex items-end h-8 text-xs font-bold tracking-wider text-slate-500 mb-1.5">
+                  RCP Qty
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  required
+                  value={rcpQty}
+                  onChange={(e) => setRcpQty(e.target.value)}
+                  placeholder="e.g. 2"
+                  className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-semibold outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-150"
+                />
               </div>
             </div>
 
-            {newSkuId && (
-              <div className="mt-1 flex items-center gap-1">
-                {(() => {
-                  const vsItem = vanStock.find((x) => x.skuId === newSkuId);
-                  const vQty = vsItem ? vsItem.qty : 0;
-                  return vQty === 0 ? (
-                    <span className="flex items-center gap-0.5 text-xs font-semibold text-rose-600 text-left">
-                      <AlertOctagon className="h-4 w-4 shrink-0 text-rose-600" /> Zero trunk stocks! Requester form first
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1 text-xs font-semibold text-emerald-800 text-left">
-                      <CheckCircle className="h-4 w-4 shrink-0 text-emerald-600 animate-pulse" /> Van Stock Trunk: {vQty} units available
-                    </span>
-                  );
-                })()}
+            <div className="border-t border-slate-100 pt-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-display text-xs font-bold text-slate-900 uppercase tracking-wider">
+                  ACCESSORIES SOLD ON JOBS
+                </h3>
+                {lines.length === 0 && (
+                  <span className="text-xs font-bold text-slate-400">
+                    Add items first to record them
+                  </span>
+                )}
               </div>
-            )}
-          </div>
 
-          {lines.length > 0 && (
-            <div className="space-y-3 pt-2">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
-                ADDED ACCESSORIES ({lines.length})
-              </h4>
-              <div className="space-y-3">
-                {lines.map((ln, idx) => {
-                  const skuItem = getSku(skus, ln.skuId);
-                  return (
-                    <div
-                      key={`added-${idx}`}
-                      className="rounded-2xl border border-slate-100 bg-white p-4 flex items-center justify-between gap-4 shadow-sm"
+              <div className="rounded-2xl border border-slate-200/50 bg-slate-50/10 p-5 shadow-sm space-y-4">
+                <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-indigo-950">
+                  <span className="h-2 w-2 rounded-full bg-indigo-650 inline-block"></span>
+                  NEW SKU ITEM ADDITION
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                  <div className="sm:col-span-5">
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1">
+                      Product SKU / Availability
+                    </label>
+                    <select
+                      value={newSkuId}
+                      onChange={(e) => setNewSkuId(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-semibold outline-none focus:border-indigo-650 focus:ring-4 focus:ring-indigo-150"
                     >
-                      <div className="flex flex-col gap-1.5">
-                        <div className="flex flex-wrap items-center gap-2 text-sm text-slate-800 font-bold">
-                          <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 inline-block shrink-0"></span>
-                          <span className="font-mono text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-lg border border-indigo-100/50">
-                            {ln.skuId}
-                          </span>
-                          <span className="text-slate-300">|</span>
-                          <span>{skuItem.name}</span>
-                          <span className="text-slate-300">|</span>
-                          <span className="text-slate-600 font-semibold">Qty: {ln.qty}</span>
-                        </div>
-                        <div className="text-emerald-700 font-extrabold text-sm pl-4.5">
-                          Value: {fmtCur(Number(ln.saleValue))}
-                        </div>
-                      </div>
+                      <option value="">Select SKU...</option>
+                      {skus
+                        .filter((s) => {
+                          const vsItem = vanStock.find((x) => x.skuId === s.id);
+                          if (!vsItem) return false;
+                          const alreadyAdded = lines
+                            .filter((ln) => ln.skuId === s.id)
+                            .reduce((sum, ln) => sum + Number(ln.qty), 0);
+                          return (vsItem.qty - alreadyAdded) > 0;
+                        })
+                        .map((s) => {
+                          return (
+                            <option key={s.id} value={s.id}>
+                              {s.id} - {s.name}
+                            </option>
+                          );
+                        })}
+                    </select>
+                  </div>
 
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveLine(idx)}
-                        className="rounded-xl border border-slate-200 hover:border-rose-200 p-2 text-slate-400 hover:text-rose-600 transition bg-white cursor-pointer shrink-0"
-                      >
-                        <Trash className="h-4 w-4" />
-                      </button>
-                    </div>
-                  );
-                })}
+                  <div className="sm:col-span-2">
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1">
+                      Qty Sold
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={newQty}
+                      onChange={(e) => setNewQty(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-semibold outline-none focus:border-indigo-650 focus:ring-4 focus:ring-indigo-150"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-3">
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1">
+                      Sale Value (₹)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={newSaleValue}
+                      onChange={(e) => setNewSaleValue(e.target.value)}
+                      placeholder="e.g. 500"
+                      className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-semibold outline-none focus:border-indigo-650 focus:ring-4 focus:ring-indigo-150"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <button
+                      type="button"
+                      onClick={handleAddNewLine}
+                      className="w-full flex items-center justify-center rounded-xl bg-indigo-900 hover:bg-slate-900 text-white font-extrabold py-3 text-sm transition shadow-md shadow-indigo-900/10 cursor-pointer h-[46px]"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+
+                {newSkuId && (
+                  <div className="mt-1 flex items-center gap-1">
+                    {(() => {
+                      const vsItem = vanStock.find((x) => x.skuId === newSkuId);
+                      const alreadyAdded = lines
+                        .filter((ln) => ln.skuId === newSkuId)
+                        .reduce((sum, ln) => sum + Number(ln.qty), 0);
+                      const vQty = vsItem ? Math.max(0, vsItem.qty - alreadyAdded) : 0;
+                      return vQty === 0 ? (
+                        <span className="flex items-center gap-0.5 text-xs font-semibold text-rose-600 text-left">
+                          <AlertOctagon className="h-4 w-4 shrink-0 text-rose-600" /> Zero trunk stocks! Requester form first
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-xs font-semibold text-emerald-800 text-left">
+                          <CheckCircle className="h-4 w-4 shrink-0 text-emerald-600 animate-pulse" /> Van Stock Trunk: {vQty} units available
+                        </span>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
-            </div>
-          )}
-        </div>
 
-        <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-          <button
-            type="submit"
-            className="flex items-center gap-2 rounded-xl bg-indigo-600 text-white font-bold px-5 py-3 hover:bg-slate-900 shadow-md shadow-indigo-600/10 transition"
-          >
-            <Send className="h-4 w-4 shrink-0" /> Submit Daily Entry
-          </button>
-        </div>
+              {lines.length > 0 && (
+                <div className="space-y-3 pt-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                    ADDED ACCESSORIES ({lines.length})
+                  </h4>
+                  <div className="space-y-3">
+                    {lines.map((ln, idx) => {
+                      const skuItem = getSku(skus, ln.skuId);
+                      return (
+                        <div
+                          key={`added-${idx}`}
+                          className="rounded-2xl border border-slate-100 bg-white p-4 flex items-center justify-between gap-4 shadow-sm"
+                        >
+                          <div className="flex flex-col gap-1.5">
+                            <div className="flex flex-wrap items-center gap-2 text-sm text-slate-800 font-bold">
+                              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 inline-block shrink-0"></span>
+                              <span className="font-mono text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-lg border border-indigo-100/50">
+                                {ln.skuId}
+                              </span>
+                              <span className="text-slate-300">|</span>
+                              <span>{skuItem.name}</span>
+                              <span className="text-slate-300">|</span>
+                              <span className="text-slate-600 font-semibold">Qty: {ln.qty}</span>
+                            </div>
+                            <div className="text-emerald-700 font-extrabold text-sm pl-4.5">
+                              Value: {fmtCur(Number(ln.saleValue))}
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveLine(idx)}
+                            className="rounded-xl border border-slate-200 hover:border-rose-200 p-2 text-slate-400 hover:text-rose-600 transition bg-white cursor-pointer shrink-0"
+                          >
+                            <Trash className="h-4 w-4" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {!isAlreadySubmitted && (
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+            <button
+              type="submit"
+              className="flex items-center gap-2 rounded-xl bg-indigo-600 text-white font-bold px-5 py-3 hover:bg-slate-900 shadow-md shadow-indigo-600/10 transition cursor-pointer"
+            >
+              <Send className="h-4 w-4 shrink-0" /> 
+              {attendanceStatus === 'Leave' ? 'Log Leave' : 'Submit Daily Entry'}
+            </button>
+          </div>
+        )}
       </form>
     </div>
   );

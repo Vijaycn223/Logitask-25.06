@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "mahira-d911b"
+    "default": "mahira-d911b",
+    "production": "mahira-d911b",
+    "staging": "staging-fd981"
   }
 }

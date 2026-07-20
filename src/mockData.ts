@@ -14,11 +14,12 @@ import {
   PurchaseInward,
   RevokeRequest,
   Organisation,
+  PurchaseOrder,
 } from './types';
 
 export const INITIAL_ORGANISATIONS: Organisation[] = [
-  { id: 'org-001', name: 'Apollo Healthcare Ops', siteCode: 'APO-01' },
-  { id: 'org-002', name: 'Titan Tech Services', siteCode: 'TTN-02' },
+  { id: 'org-001', name: 'Apollo Healthcare Ops', siteCode: 'APO-01', status: 'active', subscriptionPlan: 'enterprise', createdAt: new Date().toISOString() },
+  { id: 'org-002', name: 'Titan Tech Services', siteCode: 'TTN-02', status: 'active', subscriptionPlan: 'professional', createdAt: new Date().toISOString() },
 ];
 
 export const INITIAL_USERS: User[] = [
@@ -241,3 +242,51 @@ export const INITIAL_PURCHASE_INWARD: PurchaseInward[] = [
 ];
 
 export const INITIAL_REVOKE_REQUESTS: RevokeRequest[] = [];
+
+export const INITIAL_PURCHASE_ORDERS: PurchaseOrder[] = [
+  {
+    id: 'PO-001',
+    poNumber: 'PO/2026/001',
+    poDate: '2026-06-28',
+    netValue: 120000,
+    gstAmount: 21600,
+    totalValue: 141600,
+    status: 'Dispatch Pending',
+    orgId: 'org-001',
+    registeredBy: 'store@fieldops.com'
+  },
+  {
+    id: 'PO-002',
+    poNumber: 'PO/2026/002',
+    poDate: '2026-06-29',
+    netValue: 85000,
+    gstAmount: 15300,
+    totalValue: 100300,
+    status: 'Dispatched',
+    orgId: 'org-001',
+    registeredBy: 'store@fieldops.com'
+  },
+  {
+    id: 'PO-003',
+    poNumber: 'PO/2026/003',
+    poDate: '2026-06-30',
+    netValue: 450000,
+    gstAmount: 81000,
+    totalValue: 531000,
+    status: 'Payment Received (Pending Approval)',
+    orgId: 'org-001',
+    registeredBy: 'store@fieldops.com'
+  },
+  {
+    id: 'PO-004',
+    poNumber: 'PO/2026/004',
+    poDate: '2026-07-01',
+    netValue: 300000,
+    gstAmount: 54000,
+    totalValue: 354000,
+    status: 'Payment Received',
+    orgId: 'org-001',
+    registeredBy: 'store@fieldops.com'
+  }
+];
+

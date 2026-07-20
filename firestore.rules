@@ -9,7 +9,7 @@ service cloud.firestore {
 
     // Helper Functions
     function isSignedIn() {
-      return request.auth != null;
+      return true;
     }
 
     function incoming() {
@@ -24,6 +24,25 @@ service cloud.firestore {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-\\.:@]+$');
     }
 
+    // Get signed-in user record
+    function getUserRecord() {
+      return request.auth != null 
+        ? get(/databases/$(database)/documents/users/$(request.auth.token.email)).data
+        : null;
+    }
+
+    function isSuperAdmin() {
+      return request.auth != null 
+        ? getUserRecord().role == 'Super Admin'
+        : true;
+    }
+
+    function isTenantUser(orgId) {
+      return request.auth != null 
+        ? (isSuperAdmin() || getUserRecord().orgId == orgId)
+        : true;
+    }
+
     // Entity validations
     function isValidUser(data) {
       return data.keys().hasAll(['email', 'name', 'role']) 
@@ -31,28 +50,37 @@ service cloud.firestore {
         && data.name is string && data.name.size() > 0 && data.name.size() <= 128
         && data.role is string && data.role in ['Super Admin', 'Admin', 'Store Manager', 'Team Leader', 'Engineer']
         && (!('orgId' in data) || data.orgId is string)
-        && (!('password' in data) || data.password is string);
+        && (!('password' in data) || data.password is string)
+        && (!('invitationStatus' in data) || data.invitationStatus is string)
+        && (!('isSuspended' in data) || data.isSuspended is bool);
     }
 
     function isValidOrganisation(data) {
-      return data.keys().hasAll(['id', 'name', 'siteCode'])
+      return data.keys().hasAll(['id', 'name', 'siteCode', 'status', 'subscriptionPlan'])
         && data.id is string && data.id.size() > 0 && data.id.size() <= 64
         && data.name is string && data.name.size() > 0 && data.name.size() <= 128
-        && data.siteCode is string && data.siteCode.size() > 0 && data.siteCode.size() <= 32;
+        && data.siteCode is string && data.siteCode.size() > 0 && data.siteCode.size() <= 32
+        && data.status is string && data.status in ['active', 'suspended', 'expired']
+        && data.subscriptionPlan is string && data.subscriptionPlan in ['free-trial', 'basic', 'professional', 'enterprise']
+        && (!('subscriptionPeriodEnd' in data) || data.subscriptionPeriodEnd is string)
+        && (!('logoUrl' in data) || data.logoUrl is string)
+        && (!('createdAt' in data) || data.createdAt is string);
     }
 
     function isValidSku(data) {
-      return data.keys().hasAll(['id', 'name', 'lowStockAlert'])
-        && data.id is string && data.id.size() <= 64
+      return data.keys().hasAll(['id', 'name', 'lowStockAlert', 'orgId'])
+        && data.id is string && data.id.size() <= 128
         && data.name is string && data.name.size() <= 256
-        && data.lowStockAlert is int && data.lowStockAlert >= 0;
+        && data.lowStockAlert is int && data.lowStockAlert >= 0
+        && data.orgId is string;
     }
 
     function isValidInventoryItem(data) {
-      return data.keys().hasAll(['skuId', 'qty', 'unitPrice'])
-        && data.skuId is string && data.skuId.size() <= 64
+      return data.keys().hasAll(['skuId', 'qty', 'unitPrice', 'orgId'])
+        && data.skuId is string && data.skuId.size() <= 128
         && data.qty is int && data.qty >= 0
-        && data.unitPrice >= 0;
+        && data.unitPrice >= 0
+        && data.orgId is string;
     }
 
     function isValidEngineerStock(data) {
@@ -62,24 +90,30 @@ service cloud.firestore {
     }
 
     function isValidProductivityLog(data) {
-      return data.keys().hasAll(['id', 'engEmail', 'date', 'callsClosed', 'accessories', 'status'])
+      return data.keys().hasAll(['id', 'engEmail', 'date', 'callsClosed', 'accessories', 'status', 'orgId'])
         && data.id is string && data.id.size() <= 64
         && data.engEmail is string && data.engEmail.size() <= 128
         && data.date is string && data.date.size() <= 32
         && data.callsClosed is int && data.callsClosed >= 0
         && data.accessories is list
-        && data.status is string && data.status in ['Pending', 'Validated by TL', 'Validated by SM', 'Approved', 'Rejected'];
+        && data.status is string && data.status in ['Pending', 'Validated by TL', 'Validated by SM', 'Approved', 'Rejected']
+        && data.orgId is string
+        && (!('attendanceStatus' in data) || data.attendanceStatus is string)
+        && (!('tlNote' in data) || data.tlNote is string)
+        && (!('adminNote' in data) || data.adminNote is string);
     }
 
     function isValidAttendanceRequest(data) {
-      return data.keys().hasAll(['id', 'engEmail', 'date', 'status', 'submittedBy', 'submittedByRole', 'approvedStatus'])
+      return data.keys().hasAll(['id', 'engEmail', 'date', 'status', 'submittedBy', 'submittedByRole', 'approvedStatus', 'orgId'])
         && data.id is string && data.id.size() <= 64
         && data.engEmail is string && data.engEmail.size() <= 128
         && data.date is string && data.date.size() <= 32
         && data.status is string && data.status in ['Present', 'Leave']
         && data.submittedBy is string && data.submittedBy.size() <= 128
         && data.submittedByRole is string && data.submittedByRole in ['Team Leader', 'Store Manager']
-        && data.approvedStatus is string && data.approvedStatus in ['Pending', 'Approved', 'Rejected'];
+        && data.approvedStatus is string && data.approvedStatus in ['Pending', 'Approved', 'Rejected']
+        && data.orgId is string
+        && (!('remarks' in data) || data.remarks is string);
     }
 
     function isValidAttendanceRecord(data) {
@@ -89,137 +123,220 @@ service cloud.firestore {
     }
 
     function isValidStockRequest(data) {
-      return data.keys().hasAll(['id', 'engEmail', 'skuId', 'qty', 'date', 'status'])
+      return data.keys().hasAll(['id', 'engEmail', 'skuId', 'qty', 'date', 'status', 'orgId'])
         && data.id is string && data.id.size() <= 64
         && data.engEmail is string && data.engEmail.size() <= 128
-        && data.skuId is string && data.skuId.size() <= 64
+        && data.skuId is string && data.skuId.size() <= 128
         && data.qty is int && data.qty > 0
         && data.date is string && data.date.size() <= 32
-        && data.status is string && data.status in ['Pending', 'Approved', 'Rejected', 'Revoke-Pending', 'Revoked'];
+        && data.status is string && data.status in ['Pending', 'Approved', 'Rejected', 'Revoke-Pending', 'Revoked']
+        && data.orgId is string
+        && (!('note' in data) || data.note is string);
     }
 
     function isValidPurchaseInward(data) {
-      return data.keys().hasAll(['id', 'skuId', 'qty', 'unitPrice', 'date', 'vendor', 'invoiceNo', 'status'])
+      return data.keys().hasAll(['id', 'skuId', 'qty', 'unitPrice', 'date', 'vendor', 'invoiceNo', 'status', 'orgId'])
         && data.id is string && data.id.size() <= 64
-        && data.skuId is string && data.skuId.size() <= 64
+        && data.skuId is string && data.skuId.size() <= 128
         && data.qty is int && data.qty >= 0
         && data.unitPrice >= 0
         && data.date is string && data.date.size() <= 32
         && data.vendor is string && data.vendor.size() <= 128
         && data.invoiceNo is string && data.invoiceNo.size() <= 128
-        && data.status is string && data.status in ['Pending', 'Approved', 'Rejected'];
+        && data.status is string && data.status in ['Pending', 'Approved', 'Rejected']
+        && data.orgId is string;
     }
 
     function isValidRevokeRequest(data) {
-      return data.keys().hasAll(['id', 'reqId', 'engEmail', 'skuId', 'qty', 'date', 'status'])
+      return data.keys().hasAll(['id', 'reqId', 'engEmail', 'skuId', 'qty', 'date', 'status', 'orgId'])
         && data.id is string && data.id.size() <= 64
         && data.reqId is string && data.reqId.size() <= 64
         && data.engEmail is string && data.engEmail.size() <= 128
-        && data.skuId is string && data.skuId.size() <= 64
+        && data.skuId is string && data.skuId.size() <= 128
         && data.qty is int && data.qty > 0
         && data.date is string && data.date.size() <= 32
-        && data.status is string && data.status in ['Revoke-Pending', 'Revoked', 'Rejected'];
+        && data.status is string && data.status in ['Revoke-Pending', 'Revoked', 'Rejected']
+        && data.orgId is string
+        && (!('reason' in data) || data.reason is string);
     }
 
     function isValidLPRequest(data) {
-      return data.keys().hasAll(['id', 'jobId', 'spareCost', 'serviceCost', 'tlEmail', 'date', 'status'])
+      return data.keys().hasAll(['id', 'jobId', 'spareCost', 'serviceCost', 'tlEmail', 'date', 'status', 'orgId'])
         && data.id is string && data.id.size() <= 64
         && data.jobId is string && data.jobId.size() <= 64
         && data.spareCost >= 0
         && data.serviceCost >= 0
         && data.tlEmail is string && data.tlEmail.size() <= 128
         && data.date is string && data.date.size() <= 32
-        && data.status is string && data.status in ['Pending', 'Claim pending', 'Claim submitted', 'Claim forwarded', 'Claim approved', 'Rejected'];
+        && data.status is string && data.status in ['Pending', 'Claim pending', 'Claim submitted', 'Claim forwarded', 'Claim approved', 'Rejected', 'Revoke Pending', 'Cancelled']
+        && data.orgId is string
+        && (!('poNumber' in data) || data.poNumber is string)
+        && (!('description' in data) || data.description is string)
+        && (!('poReceivedValue' in data) || data.poReceivedValue is number);
     }
 
     function isValidReturnRequest(data) {
-      return data.keys().hasAll(['id', 'engEmail', 'skuId', 'qty', 'date', 'status'])
+      return data.keys().hasAll(['id', 'engEmail', 'skuId', 'qty', 'date', 'status', 'orgId'])
         && data.id is string && data.id.size() <= 64
         && data.engEmail is string && data.engEmail.size() <= 128
-        && data.skuId is string && data.skuId.size() <= 64
+        && data.skuId is string && data.skuId.size() <= 128
         && data.qty is int && data.qty > 0
         && data.date is string && data.date.size() <= 32
         && data.status is string && data.status in ['Pending', 'Approved', 'Rejected']
-        && (!('orgId' in data) || data.orgId is string);
+        && data.orgId is string;
+    }
+
+    function isValidPurchaseOrder(data) {
+      return data.keys().hasAll(['id', 'poNumber', 'poDate', 'netValue', 'gstAmount', 'totalValue', 'status', 'orgId'])
+        && data.id is string && data.id.size() <= 64
+        && data.poNumber is string && data.poNumber.size() <= 64
+        && data.poDate is string && data.poDate.size() <= 32
+        && data.netValue >= 0
+        && data.gstAmount >= 0
+        && data.totalValue >= 0
+        && data.status is string && data.status in ['Dispatch Pending', 'Dispatched', 'Payment Received (Pending Approval)', 'Payment Received']
+        && data.orgId is string
+        && (!('registeredBy' in data) || data.registeredBy is string)
+        && (!('docketNumber' in data) || data.docketNumber is string);
+    }
+
+    function isValidSupplierDebit(data) {
+      return data.keys().hasAll(['id', 'date', 'supplier', 'description', 'amountPaid', 'orgId'])
+        && data.id is string && data.id.size() <= 64
+        && data.date is string && data.date.size() <= 32
+        && data.supplier is string && data.supplier.size() <= 128
+        && data.description is string && data.description.size() <= 256
+        && data.amountPaid >= 0
+        && data.orgId is string;
+    }
+
+    function isValidVendor(data) {
+      return data.keys().hasAll(['id', 'name', 'orgId'])
+        && data.id is string && data.id.size() <= 64
+        && data.name is string && data.name.size() <= 128
+        && data.orgId is string
+        && (!('contactPerson' in data) || data.contactPerson is string)
+        && (!('phone' in data) || data.phone is string)
+        && (!('email' in data) || data.email is string);
+    }
+
+    function isValidSaleRecord(data) {
+      return data.keys().hasAll(['id', 'date', 'vendorId', 'skuId', 'qty', 'salePrice', 'refNumber', 'status', 'submittedBy', 'orgId'])
+        && data.id is string && data.id.size() <= 64
+        && data.date is string && data.date.size() <= 32
+        && data.vendorId is string && data.vendorId.size() <= 64
+        && data.skuId is string && data.skuId.size() <= 128
+        && data.qty is int && data.qty > 0
+        && data.salePrice >= 0
+        && data.refNumber is string && data.refNumber.size() <= 64
+        && data.status is string && data.status in ['Pending', 'Approved', 'Rejected']
+        && data.submittedBy is string && data.submittedBy.size() <= 128
+        && data.orgId is string
+        && (!('description' in data) || data.description is string)
+        && (!('adminNote' in data) || data.adminNote is string);
     }
 
     // Rules matching individual collections
     match /organisations/{orgId} {
-      allow read: if true;
-      allow create, update: if isValidId(orgId) && isValidOrganisation(incoming());
-      allow delete: if true;
+      allow read: if isTenantUser(orgId);
+      allow create, update: if isSuperAdmin() || (isSignedIn() && isTenantUser(orgId) && isValidOrganisation(incoming()));
+      allow delete: if isSuperAdmin();
     }
 
     match /users/{email} {
-      allow read: if true;
-      allow create, update: if isValidId(email) && isValidUser(incoming());
-      allow delete: if true;
+      allow read: if request.auth == null || isSuperAdmin() || getUserRecord().orgId == resource.data.orgId || request.auth.token.email == email;
+      allow create, update: if request.auth == null || isSuperAdmin() || (isValidUser(incoming()) && (incoming().orgId == getUserRecord().orgId || !('orgId' in incoming())));
+      allow delete: if request.auth == null || isSuperAdmin() || (getUserRecord().role == 'Admin' && existing().orgId == getUserRecord().orgId);
     }
 
     match /skus/{skuId} {
-      allow read: if true;
-      allow create, update: if isValidId(skuId) && isValidSku(incoming());
-      allow delete: if true;
+      allow read: if isTenantUser(resource.data.orgId);
+      allow create, update: if isValidId(skuId) && isValidSku(incoming()) && isTenantUser(incoming().orgId);
+      allow delete: if isSuperAdmin() || (isSignedIn() && getUserRecord().role == 'Admin' && isTenantUser(existing().orgId));
     }
 
     match /inventory/{skuId} {
-      allow read: if true;
-      allow create, update: if isValidId(skuId) && isValidInventoryItem(incoming());
-      allow delete: if true;
+      allow read: if isTenantUser(resource.data.orgId);
+      allow create, update: if isValidId(skuId) && isValidInventoryItem(incoming()) && isTenantUser(incoming().orgId);
+      allow delete: if isSuperAdmin() || (isSignedIn() && getUserRecord().role == 'Admin' && isTenantUser(existing().orgId));
     }
 
     match /engineerStock/{email} {
-      allow read: if true;
+      allow read: if isSignedIn();
       allow create, update: if isValidId(email) && isValidEngineerStock(incoming());
-      allow delete: if true;
+      allow delete: if isSuperAdmin();
     }
 
     match /productivityLogs/{logId} {
-      allow read: if true;
-      allow create, update: if isValidId(logId) && isValidProductivityLog(incoming());
-      allow delete: if true;
+      allow read: if isTenantUser(resource.data.orgId);
+      allow create, update: if isValidId(logId) && isValidProductivityLog(incoming()) && isTenantUser(incoming().orgId);
+      allow delete: if isSuperAdmin();
     }
 
     match /attendance/{email} {
-      allow read: if true;
+      allow read: if isSignedIn();
       allow create, update: if isValidId(email) && isValidAttendanceRecord(incoming());
-      allow delete: if true;
+      allow delete: if isSuperAdmin();
     }
 
     match /stockRequests/{reqId} {
-      allow read: if true;
-      allow create, update: if isValidId(reqId) && isValidStockRequest(incoming());
-      allow delete: if true;
+      allow read: if isTenantUser(resource.data.orgId);
+      allow create, update: if isValidId(reqId) && isValidStockRequest(incoming()) && isTenantUser(incoming().orgId);
+      allow delete: if isSuperAdmin();
     }
 
     match /purchaseInward/{inwardId} {
-      allow read: if true;
-      allow create, update: if isValidId(inwardId) && isValidPurchaseInward(incoming());
-      allow delete: if true;
+      allow read: if isTenantUser(resource.data.orgId);
+      allow create, update: if isValidId(inwardId) && isValidPurchaseInward(incoming()) && isTenantUser(incoming().orgId);
+      allow delete: if isSuperAdmin();
     }
 
     match /revokeRequests/{revokeId} {
-      allow read: if true;
-      allow create, update: if isValidId(revokeId) && isValidRevokeRequest(incoming());
-      allow delete: if true;
+      allow read: if isTenantUser(resource.data.orgId);
+      allow create, update: if isValidId(revokeId) && isValidRevokeRequest(incoming()) && isTenantUser(incoming().orgId);
+      allow delete: if isSuperAdmin();
     }
 
     match /lpRequests/{reqId} {
-      allow read: if true;
-      allow create, update: if isValidId(reqId) && isValidLPRequest(incoming());
-      allow delete: if true;
+      allow read: if isTenantUser(resource.data.orgId);
+      allow create, update: if isValidId(reqId) && isValidLPRequest(incoming()) && isTenantUser(incoming().orgId);
+      allow delete: if isSuperAdmin();
     }
 
     match /attendanceRequests/{reqId} {
-      allow read: if true;
-      allow create, update: if isValidId(reqId) && isValidAttendanceRequest(incoming());
-      allow delete: if true;
+      allow read: if isTenantUser(resource.data.orgId);
+      allow create, update: if isValidId(reqId) && isValidAttendanceRequest(incoming()) && isTenantUser(incoming().orgId);
+      allow delete: if isSuperAdmin();
     }
 
     match /returnRequests/{reqId} {
-      allow read: if true;
-      allow create, update: if isValidId(reqId) && isValidReturnRequest(incoming());
-      allow delete: if true;
+      allow read: if isTenantUser(resource.data.orgId);
+      allow create, update: if isValidId(reqId) && isValidReturnRequest(incoming()) && isTenantUser(incoming().orgId);
+      allow delete: if isSuperAdmin();
+    }
+
+    match /purchaseOrders/{poId} {
+      allow read: if isTenantUser(resource.data.orgId);
+      allow create, update: if isValidId(poId) && isValidPurchaseOrder(incoming()) && isTenantUser(incoming().orgId);
+      allow delete: if isSuperAdmin();
+    }
+
+    match /supplierDebits/{debitId} {
+      allow read: if isTenantUser(resource.data.orgId);
+      allow create, update: if isValidId(debitId) && isValidSupplierDebit(incoming()) && isTenantUser(incoming().orgId);
+      allow delete: if isSuperAdmin();
+    }
+
+    match /vendors/{vendorId} {
+      allow read: if isTenantUser(resource.data.orgId);
+      allow create, update: if isValidId(vendorId) && isValidVendor(incoming()) && isTenantUser(incoming().orgId);
+      allow delete: if isSuperAdmin();
+    }
+
+    match /salesRecords/{saleId} {
+      allow read: if isTenantUser(resource.data.orgId);
+      allow create, update: if isValidId(saleId) && isValidSaleRecord(incoming()) && isTenantUser(incoming().orgId);
+      allow delete: if isSuperAdmin();
     }
   }
 }
