@@ -72,6 +72,7 @@ export interface ProductivityLog {
   adminNote?: string;
   orgId?: string; // organization ID
   attendanceStatus?: 'Present' | 'Leave';
+  validatedBy?: string;
 }
 
 export interface AttendanceRecord {

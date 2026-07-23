@@ -1666,9 +1666,9 @@ export default function App() {
                     const others = lpRequests.filter(x => x.orgId !== userOrgId);
                     syncState(STORAGE_KEYS.LP_REQS, [...others, ...withOrg], setLpRequests);
                   }}
-                  onUpdateLogStatus={(id, status, note) => {
+                  onUpdateLogStatus={(id, status, note, validatedBy) => {
                     const updated = productivityLogs.map((l) => {
-                      if (l.id === id) return { ...l, status, tlNote: note, orgId: l.orgId || userOrgId };
+                      if (l.id === id) return { ...l, status, tlNote: note, validatedBy, orgId: l.orgId || userOrgId };
                       return l;
                     });
                     adjustStockForLogChange(productivityLogs, updated);

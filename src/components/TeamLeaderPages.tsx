@@ -21,7 +21,7 @@ interface TeamLeaderPagesProps {
   lpRequests: LPRequest[];
   onAddLpRequest: (lp: LPRequest) => void;
   onUpdateLpRequests: (lp: LPRequest[]) => void;
-  onUpdateLogStatus: (id: string, status: 'Validated by TL' | 'Rejected', note: string) => void;
+  onUpdateLogStatus: (id: string, status: 'Validated by TL' | 'Rejected', note: string, validatedBy: string) => void;
   onAddToast: (msg: string, type?: 'success' | 'error') => void;
 }
 
@@ -131,7 +131,10 @@ export function TeamLeaderPages({
   };
 
   const pendingList = productivityLogs.filter((l) => l.status === 'Pending').sort((a, b) => a.date.localeCompare(b.date));
-  const doneList = productivityLogs.filter((l) => l.status === 'Validated by TL' || l.status === 'Validated by SM' || l.status === 'Approved' || l.status === 'Rejected').sort((a, b) => b.date.localeCompare(a.date));
+  const doneList = productivityLogs.filter((l) => 
+    (l.status === 'Validated by TL' || l.status === 'Validated by SM' || l.status === 'Approved' || l.status === 'Rejected') &&
+    l.validatedBy === currentUser.email
+  ).sort((a, b) => b.date.localeCompare(a.date));
 
   const filteredPendingList = pendingList.filter((l) => {
     const engineer = getUser(users, l.engEmail);
@@ -164,7 +167,7 @@ export function TeamLeaderPages({
     setProcessingProductivityIds((prev) => [...prev, logId]);
 
     setTimeout(() => {
-      onUpdateLogStatus(logId, action, note);
+      onUpdateLogStatus(logId, action, note, currentUser.email);
       onAddToast(action === 'Validated by TL' ? 'Entry successfully validated and forwarded to Store Manager!' : 'Log rejected.', 'success');
       // Clear local note
       setTlNotes(prev => {
