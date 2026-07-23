@@ -420,27 +420,56 @@ export default function App() {
         });
       }, (error) => handleFirestoreError(error, OperationType.GET, 'productivityLogs'));
     } else if (role === 'Team Leader') {
-      const q = query(
+      const qPending = query(
         collection(db, 'productivityLogs'),
-        and(
-          where('orgId', '==', userOrgId),
-          or(
-            where('status', '==', 'Pending'),
-            where('validatedBy', '==', currentUser.email)
-          )
-        )
+        where('orgId', '==', userOrgId),
+        where('status', '==', 'Pending')
       );
-      unsubLogs = onSnapshot(q, (snapshot) => {
-        const list: ProductivityLog[] = [];
-        snapshot.forEach((doc) => {
-          list.push(doc.data() as ProductivityLog);
-        });
+      const qValidated = query(
+        collection(db, 'productivityLogs'),
+        where('orgId', '==', userOrgId),
+        where('validatedBy', '==', currentUser.email)
+      );
+
+      const logsMap: Record<string, ProductivityLog> = {};
+
+      const updateLogs = () => {
+        const list = Object.values(logsMap);
         setProductivityLogs((prev) => {
           if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
           localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(list));
           return list;
         });
+      };
+
+      const unsubLogs1 = onSnapshot(qPending, (snapshot) => {
+        Object.keys(logsMap).forEach((id) => {
+          if (logsMap[id].status === 'Pending' && !snapshot.docs.some(doc => doc.id === id)) {
+            delete logsMap[id];
+          }
+        });
+        snapshot.forEach((doc) => {
+          logsMap[doc.id] = doc.data() as ProductivityLog;
+        });
+        updateLogs();
       }, (error) => handleFirestoreError(error, OperationType.GET, 'productivityLogs'));
+
+      const unsubLogs2 = onSnapshot(qValidated, (snapshot) => {
+        Object.keys(logsMap).forEach((id) => {
+          if (logsMap[id].validatedBy === currentUser.email && !snapshot.docs.some(doc => doc.id === id)) {
+            delete logsMap[id];
+          }
+        });
+        snapshot.forEach((doc) => {
+          logsMap[doc.id] = doc.data() as ProductivityLog;
+        });
+        updateLogs();
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'productivityLogs'));
+
+      unsubLogs = () => {
+        unsubLogs1();
+        unsubLogs2();
+      };
     } else if (role === 'Engineer') {
       const q = query(collection(db, 'productivityLogs'), where('orgId', '==', userOrgId), where('engEmail', '==', currentUser.email));
       unsubLogs = onSnapshot(q, (snapshot) => {
