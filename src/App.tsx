@@ -49,7 +49,7 @@ import { EngineerPages } from './components/EngineerPages';
 import { SuperAdminPages } from './components/SuperAdminPages';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { Sparkles, Calendar, CheckCircle2, AlertCircle, Menu, LogOut, ShieldAlert, Key } from 'lucide-react';
-import { collection, doc, onSnapshot, query, where, getDocs, or } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, where, getDocs, or, and } from 'firebase/firestore';
 import { db } from './firebase';
 import { 
   testConnection, 
@@ -422,10 +422,12 @@ export default function App() {
     } else if (role === 'Team Leader') {
       const q = query(
         collection(db, 'productivityLogs'),
-        where('orgId', '==', userOrgId),
-        or(
-          where('status', '==', 'Pending'),
-          where('validatedBy', '==', currentUser.email)
+        and(
+          where('orgId', '==', userOrgId),
+          or(
+            where('status', '==', 'Pending'),
+            where('validatedBy', '==', currentUser.email)
+          )
         )
       );
       unsubLogs = onSnapshot(q, (snapshot) => {
