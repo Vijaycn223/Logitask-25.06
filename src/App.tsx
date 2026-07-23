@@ -295,6 +295,13 @@ export default function App() {
       if (isSuperAdmin || !userOrgId) {
         return colRef;
       }
+      if (colName === 'users') {
+        return query(colRef, or(
+          where('orgId', '==', userOrgId),
+          where('role', '==', 'Super Admin'),
+          where('role', '==', 'Admin')
+        ));
+      }
       return query(colRef, where('orgId', '==', userOrgId));
     };
 
