@@ -219,6 +219,11 @@ export default function App() {
   useEffect(() => {
     const handleErr = (e: any) => {
       const errMsg = e.detail?.error?.toLowerCase() || '';
+      const originalMsg = e.detail?.error || 'Unknown database error';
+      
+      // Always show a red toast error for any Firestore database failure
+      addToast(`Database Error: ${originalMsg}`, 'error');
+
       if (errMsg.includes('permission') || errMsg.includes('insufficient') || errMsg.includes('auth')) {
         setPermissionError(e.detail);
         setOfflineMode(true);
