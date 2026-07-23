@@ -437,6 +437,11 @@ export default function App() {
         where('orgId', '==', userOrgId),
         where('validatedBy', '==', currentUser.email)
       );
+      const qApproved = query(
+        collection(db, 'productivityLogs'),
+        where('orgId', '==', userOrgId),
+        where('status', '==', 'Approved')
+      );
 
       const logsMap: Record<string, ProductivityLog> = {};
 
@@ -473,9 +478,22 @@ export default function App() {
         updateLogs();
       }, (error) => handleFirestoreError(error, OperationType.GET, 'productivityLogs'));
 
+      const unsubLogs3 = onSnapshot(qApproved, (snapshot) => {
+        Object.keys(logsMap).forEach((id) => {
+          if (logsMap[id].status === 'Approved' && !snapshot.docs.some(doc => doc.id === id)) {
+            delete logsMap[id];
+          }
+        });
+        snapshot.forEach((doc) => {
+          logsMap[doc.id] = doc.data() as ProductivityLog;
+        });
+        updateLogs();
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'productivityLogs'));
+
       unsubLogs = () => {
         unsubLogs1();
         unsubLogs2();
+        unsubLogs3();
       };
     } else if (role === 'Engineer') {
       const q = query(collection(db, 'productivityLogs'), where('orgId', '==', userOrgId), where('engEmail', '==', currentUser.email));
