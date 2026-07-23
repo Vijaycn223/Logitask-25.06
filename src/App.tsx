@@ -373,7 +373,7 @@ export default function App() {
     }
 
     let unsubEngStock = () => {};
-    if (['Super Admin', 'Admin', 'Store Manager', 'Engineer'].includes(role)) {
+    if (['Super Admin', 'Admin', 'Store Manager'].includes(role)) {
       unsubEngStock = onSnapshot(collection(db, 'engineerStock'), (snapshot) => {
         const obj: EngineerStock = {};
         snapshot.forEach((doc) => {
@@ -388,11 +388,39 @@ export default function App() {
           return obj;
         });
       }, (error) => handleFirestoreError(error, OperationType.GET, 'engineerStock'));
+    } else if (role === 'Engineer' && currentUser.email) {
+      unsubEngStock = onSnapshot(doc(db, 'engineerStock', currentUser.email), (docSnap) => {
+        const obj: EngineerStock = {};
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data.stock) {
+            obj[currentUser.email] = data.stock;
+          }
+        }
+        setEngineerStock((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(obj)) return prev;
+          localStorage.setItem(STORAGE_KEYS.ENG_STOCK, JSON.stringify(obj));
+          return obj;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'engineerStock'));
     }
 
     let unsubLogs = () => {};
-    if (['Super Admin', 'Admin', 'Store Manager', 'Team Leader', 'Engineer'].includes(role)) {
+    if (['Super Admin', 'Admin', 'Store Manager', 'Team Leader'].includes(role)) {
       unsubLogs = onSnapshot(getTenantQuery('productivityLogs'), (snapshot) => {
+        const list: ProductivityLog[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as ProductivityLog);
+        });
+        setProductivityLogs((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(list));
+          return list;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'productivityLogs'));
+    } else if (role === 'Engineer') {
+      const q = query(collection(db, 'productivityLogs'), where('orgId', '==', userOrgId), where('engEmail', '==', currentUser.email));
+      unsubLogs = onSnapshot(q, (snapshot) => {
         const list: ProductivityLog[] = [];
         snapshot.forEach((doc) => {
           list.push(doc.data() as ProductivityLog);
@@ -406,7 +434,7 @@ export default function App() {
     }
 
     let unsubAttendance = () => {};
-    if (['Super Admin', 'Admin', 'Store Manager', 'Team Leader', 'Engineer'].includes(role)) {
+    if (['Super Admin', 'Admin', 'Store Manager', 'Team Leader'].includes(role)) {
       unsubAttendance = onSnapshot(collection(db, 'attendance'), (snapshot) => {
         const obj: AttendanceRecord = {};
         snapshot.forEach((doc) => {
@@ -421,11 +449,39 @@ export default function App() {
           return obj;
         });
       }, (error) => handleFirestoreError(error, OperationType.GET, 'attendance'));
+    } else if (role === 'Engineer' && currentUser.email) {
+      unsubAttendance = onSnapshot(doc(db, 'attendance', currentUser.email), (docSnap) => {
+        const obj: AttendanceRecord = {};
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data.dates) {
+            obj[currentUser.email] = data.dates;
+          }
+        }
+        setAttendance((prev) => {
+          if (isAttendanceEqual(prev, obj)) return prev;
+          localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(obj));
+          return obj;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'attendance'));
     }
 
     let unsubStockReqs = () => {};
-    if (['Super Admin', 'Admin', 'Store Manager', 'Engineer'].includes(role)) {
+    if (['Super Admin', 'Admin', 'Store Manager'].includes(role)) {
       unsubStockReqs = onSnapshot(getTenantQuery('stockRequests'), (snapshot) => {
+        const list: StockRequest[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as StockRequest);
+        });
+        setStockRequests((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.STOCK_REQS, JSON.stringify(list));
+          return list;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'stockRequests'));
+    } else if (role === 'Engineer') {
+      const q = query(collection(db, 'stockRequests'), where('orgId', '==', userOrgId), where('engEmail', '==', currentUser.email));
+      unsubStockReqs = onSnapshot(q, (snapshot) => {
         const list: StockRequest[] = [];
         snapshot.forEach((doc) => {
           list.push(doc.data() as StockRequest);
@@ -469,8 +525,21 @@ export default function App() {
     }
 
     let unsubLpReqs = () => {};
-    if (['Super Admin', 'Admin', 'Store Manager', 'Team Leader', 'Engineer'].includes(role)) {
+    if (['Super Admin', 'Admin', 'Store Manager', 'Team Leader'].includes(role)) {
       unsubLpReqs = onSnapshot(getTenantQuery('lpRequests'), (snapshot) => {
+        const list: LPRequest[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as LPRequest);
+        });
+        setLpRequests((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.LP_REQS, JSON.stringify(list));
+          return list;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'lpRequests'));
+    } else if (role === 'Engineer') {
+      const q = query(collection(db, 'lpRequests'), where('orgId', '==', userOrgId), where('submittedBy', '==', currentUser.email));
+      unsubLpReqs = onSnapshot(q, (snapshot) => {
         const list: LPRequest[] = [];
         snapshot.forEach((doc) => {
           list.push(doc.data() as LPRequest);
@@ -484,8 +553,21 @@ export default function App() {
     }
 
     let unsubAttendanceReqs = () => {};
-    if (['Super Admin', 'Admin', 'Store Manager', 'Team Leader', 'Engineer'].includes(role)) {
+    if (['Super Admin', 'Admin', 'Store Manager', 'Team Leader'].includes(role)) {
       unsubAttendanceReqs = onSnapshot(getTenantQuery('attendanceRequests'), (snapshot) => {
+        const list: AttendanceRequest[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as AttendanceRequest);
+        });
+        setAttendanceRequests((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.ATTENDANCE_REQS, JSON.stringify(list));
+          return list;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'attendanceRequests'));
+    } else if (role === 'Engineer') {
+      const q = query(collection(db, 'attendanceRequests'), where('orgId', '==', userOrgId), where('submittedBy', '==', currentUser.email));
+      unsubAttendanceReqs = onSnapshot(q, (snapshot) => {
         const list: AttendanceRequest[] = [];
         snapshot.forEach((doc) => {
           list.push(doc.data() as AttendanceRequest);
@@ -499,8 +581,21 @@ export default function App() {
     }
 
     let unsubReturnRequests = () => {};
-    if (['Super Admin', 'Admin', 'Store Manager', 'Engineer'].includes(role)) {
+    if (['Super Admin', 'Admin', 'Store Manager'].includes(role)) {
       unsubReturnRequests = onSnapshot(getTenantQuery('returnRequests'), (snapshot) => {
+        const list: ReturnRequest[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as ReturnRequest);
+        });
+        setReturnRequests((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.RETURNS, JSON.stringify(list));
+          return list;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'returnRequests'));
+    } else if (role === 'Engineer') {
+      const q = query(collection(db, 'returnRequests'), where('orgId', '==', userOrgId), where('engEmail', '==', currentUser.email));
+      unsubReturnRequests = onSnapshot(q, (snapshot) => {
         const list: ReturnRequest[] = [];
         snapshot.forEach((doc) => {
           list.push(doc.data() as ReturnRequest);
