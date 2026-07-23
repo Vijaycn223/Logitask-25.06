@@ -298,19 +298,24 @@ export default function App() {
       return query(colRef, where('orgId', '==', userOrgId));
     };
 
-    const unsubUsers = onSnapshot(getTenantQuery('users'), (snapshot) => {
-      const list: User[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as User);
-      });
-      setUsers((prev) => {
-        if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
-        localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(list));
-        return list;
-      });
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'users'));
+    const role = currentUser.role;
 
-    let unsubOrgs: () => void;
+    let unsubUsers = () => {};
+    if (['Super Admin', 'Admin', 'Store Manager', 'Team Leader'].includes(role)) {
+      unsubUsers = onSnapshot(getTenantQuery('users'), (snapshot) => {
+        const list: User[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as User);
+        });
+        setUsers((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(list));
+          return list;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'users'));
+    }
+
+    let unsubOrgs = () => {};
     if (isSuperAdmin) {
       unsubOrgs = onSnapshot(collection(db, 'organisations'), (snapshot) => {
         const list: Organisation[] = [];
@@ -335,195 +340,238 @@ export default function App() {
           });
         }
       }, (error) => handleFirestoreError(error, OperationType.GET, 'organisations'));
-    } else {
-      unsubOrgs = () => {};
     }
 
-    const unsubSkus = onSnapshot(getTenantQuery('skus'), (snapshot) => {
-      const list: SKU[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as SKU);
-      });
-      setSkus((prev) => {
-        if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
-        localStorage.setItem(STORAGE_KEYS.SKUS, JSON.stringify(list));
-        return list;
-      });
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'skus'));
+    let unsubSkus = () => {};
+    if (['Super Admin', 'Admin', 'Store Manager', 'Team Leader', 'Engineer'].includes(role)) {
+      unsubSkus = onSnapshot(getTenantQuery('skus'), (snapshot) => {
+        const list: SKU[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as SKU);
+        });
+        setSkus((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.SKUS, JSON.stringify(list));
+          return list;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'skus'));
+    }
 
-    const unsubInventory = onSnapshot(getTenantQuery('inventory'), (snapshot) => {
-      const list: InventoryItem[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as InventoryItem);
-      });
-      setInventory((prev) => {
-        if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
-        localStorage.setItem(STORAGE_KEYS.INVENTORY, JSON.stringify(list));
-        return list;
-      });
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'inventory'));
+    let unsubInventory = () => {};
+    if (['Super Admin', 'Admin', 'Store Manager'].includes(role)) {
+      unsubInventory = onSnapshot(getTenantQuery('inventory'), (snapshot) => {
+        const list: InventoryItem[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as InventoryItem);
+        });
+        setInventory((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.INVENTORY, JSON.stringify(list));
+          return list;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'inventory'));
+    }
 
-    const unsubEngStock = onSnapshot(collection(db, 'engineerStock'), (snapshot) => {
-      const obj: EngineerStock = {};
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.email && data.stock) {
-          obj[data.email] = data.stock;
-        }
-      });
-      setEngineerStock((prev) => {
-        if (JSON.stringify(prev) === JSON.stringify(obj)) return prev;
-        localStorage.setItem(STORAGE_KEYS.ENG_STOCK, JSON.stringify(obj));
-        return obj;
-      });
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'engineerStock'));
+    let unsubEngStock = () => {};
+    if (['Super Admin', 'Admin', 'Store Manager', 'Engineer'].includes(role)) {
+      unsubEngStock = onSnapshot(collection(db, 'engineerStock'), (snapshot) => {
+        const obj: EngineerStock = {};
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          if (data.email && data.stock) {
+            obj[data.email] = data.stock;
+          }
+        });
+        setEngineerStock((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(obj)) return prev;
+          localStorage.setItem(STORAGE_KEYS.ENG_STOCK, JSON.stringify(obj));
+          return obj;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'engineerStock'));
+    }
 
-    const unsubLogs = onSnapshot(getTenantQuery('productivityLogs'), (snapshot) => {
-      const list: ProductivityLog[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as ProductivityLog);
-      });
-      setProductivityLogs((prev) => {
-        if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
-        localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(list));
-        return list;
-      });
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'productivityLogs'));
+    let unsubLogs = () => {};
+    if (['Super Admin', 'Admin', 'Store Manager', 'Team Leader', 'Engineer'].includes(role)) {
+      unsubLogs = onSnapshot(getTenantQuery('productivityLogs'), (snapshot) => {
+        const list: ProductivityLog[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as ProductivityLog);
+        });
+        setProductivityLogs((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(list));
+          return list;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'productivityLogs'));
+    }
 
-    const unsubAttendance = onSnapshot(collection(db, 'attendance'), (snapshot) => {
-      const obj: AttendanceRecord = {};
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.email && data.dates) {
-          obj[data.email] = data.dates;
-        }
-      });
-      setAttendance((prev) => {
-        if (isAttendanceEqual(prev, obj)) return prev;
-        localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(obj));
-        return obj;
-      });
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'attendance'));
+    let unsubAttendance = () => {};
+    if (['Super Admin', 'Admin', 'Store Manager', 'Team Leader', 'Engineer'].includes(role)) {
+      unsubAttendance = onSnapshot(collection(db, 'attendance'), (snapshot) => {
+        const obj: AttendanceRecord = {};
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          if (data.email && data.dates) {
+            obj[data.email] = data.dates;
+          }
+        });
+        setAttendance((prev) => {
+          if (isAttendanceEqual(prev, obj)) return prev;
+          localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(obj));
+          return obj;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'attendance'));
+    }
 
-    const unsubStockReqs = onSnapshot(getTenantQuery('stockRequests'), (snapshot) => {
-      const list: StockRequest[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as StockRequest);
-      });
-      setStockRequests((prev) => {
-        if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
-        localStorage.setItem(STORAGE_KEYS.STOCK_REQS, JSON.stringify(list));
-        return list;
-      });
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'stockRequests'));
+    let unsubStockReqs = () => {};
+    if (['Super Admin', 'Admin', 'Store Manager', 'Engineer'].includes(role)) {
+      unsubStockReqs = onSnapshot(getTenantQuery('stockRequests'), (snapshot) => {
+        const list: StockRequest[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as StockRequest);
+        });
+        setStockRequests((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.STOCK_REQS, JSON.stringify(list));
+          return list;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'stockRequests'));
+    }
 
-    const unsubPurchases = onSnapshot(getTenantQuery('purchaseInward'), (snapshot) => {
-      const list: PurchaseInward[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as PurchaseInward);
-      });
-      setPurchaseInward((prev) => {
-        if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
-        localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify(list));
-        return list;
-      });
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'purchaseInward'));
+    let unsubPurchases = () => {};
+    if (['Super Admin', 'Admin', 'Store Manager'].includes(role)) {
+      unsubPurchases = onSnapshot(getTenantQuery('purchaseInward'), (snapshot) => {
+        const list: PurchaseInward[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as PurchaseInward);
+        });
+        setPurchaseInward((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify(list));
+          return list;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'purchaseInward'));
+    }
 
-    const unsubRevokes = onSnapshot(getTenantQuery('revokeRequests'), (snapshot) => {
-      const list: RevokeRequest[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as RevokeRequest);
-      });
-      setRevokeRequests((prev) => {
-        if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
-        localStorage.setItem(STORAGE_KEYS.REVOKES, JSON.stringify(list));
-        return list;
-      });
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'revokeRequests'));
+    let unsubRevokes = () => {};
+    if (['Super Admin', 'Admin', 'Store Manager'].includes(role)) {
+      unsubRevokes = onSnapshot(getTenantQuery('revokeRequests'), (snapshot) => {
+        const list: RevokeRequest[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as RevokeRequest);
+        });
+        setRevokeRequests((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.REVOKES, JSON.stringify(list));
+          return list;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'revokeRequests'));
+    }
 
-    const unsubLpReqs = onSnapshot(getTenantQuery('lpRequests'), (snapshot) => {
-      const list: LPRequest[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as LPRequest);
-      });
-      setLpRequests((prev) => {
-        if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
-        localStorage.setItem(STORAGE_KEYS.LP_REQS, JSON.stringify(list));
-        return list;
-      });
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'lpRequests'));
+    let unsubLpReqs = () => {};
+    if (['Super Admin', 'Admin', 'Store Manager', 'Team Leader', 'Engineer'].includes(role)) {
+      unsubLpReqs = onSnapshot(getTenantQuery('lpRequests'), (snapshot) => {
+        const list: LPRequest[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as LPRequest);
+        });
+        setLpRequests((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.LP_REQS, JSON.stringify(list));
+          return list;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'lpRequests'));
+    }
 
-    const unsubAttendanceReqs = onSnapshot(getTenantQuery('attendanceRequests'), (snapshot) => {
-      const list: AttendanceRequest[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as AttendanceRequest);
-      });
-      setAttendanceRequests((prev) => {
-        if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
-        localStorage.setItem(STORAGE_KEYS.ATTENDANCE_REQS, JSON.stringify(list));
-        return list;
-      });
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'attendanceRequests'));
+    let unsubAttendanceReqs = () => {};
+    if (['Super Admin', 'Admin', 'Store Manager', 'Team Leader', 'Engineer'].includes(role)) {
+      unsubAttendanceReqs = onSnapshot(getTenantQuery('attendanceRequests'), (snapshot) => {
+        const list: AttendanceRequest[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as AttendanceRequest);
+        });
+        setAttendanceRequests((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.ATTENDANCE_REQS, JSON.stringify(list));
+          return list;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'attendanceRequests'));
+    }
 
-    const unsubReturnRequests = onSnapshot(getTenantQuery('returnRequests'), (snapshot) => {
-      const list: ReturnRequest[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as ReturnRequest);
-      });
-      setReturnRequests((prev) => {
-        if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
-        localStorage.setItem(STORAGE_KEYS.RETURNS, JSON.stringify(list));
-        return list;
-      });
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'returnRequests'));
+    let unsubReturnRequests = () => {};
+    if (['Super Admin', 'Admin', 'Store Manager', 'Engineer'].includes(role)) {
+      unsubReturnRequests = onSnapshot(getTenantQuery('returnRequests'), (snapshot) => {
+        const list: ReturnRequest[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as ReturnRequest);
+        });
+        setReturnRequests((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.RETURNS, JSON.stringify(list));
+          return list;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'returnRequests'));
+    }
 
-    const unsubPOs = onSnapshot(getTenantQuery('purchaseOrders'), (snapshot) => {
-      const list: PurchaseOrder[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as PurchaseOrder);
-      });
-      setPurchaseOrders((prev) => {
-        if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
-        localStorage.setItem('fieldops_purchase_orders', JSON.stringify(list));
-        return list;
-      });
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'purchaseOrders'));
+    let unsubPOs = () => {};
+    if (['Super Admin', 'Admin', 'Store Manager'].includes(role)) {
+      unsubPOs = onSnapshot(getTenantQuery('purchaseOrders'), (snapshot) => {
+        const list: PurchaseOrder[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as PurchaseOrder);
+        });
+        setPurchaseOrders((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem('fieldops_purchase_orders', JSON.stringify(list));
+          return list;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'purchaseOrders'));
+    }
 
-    const unsubDebits = onSnapshot(getTenantQuery('supplierDebits'), (snapshot) => {
-      const list: SupplierDebit[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as SupplierDebit);
-      });
-      setSupplierDebits((prev) => {
-        if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
-        localStorage.setItem('fieldops_supplier_debits', JSON.stringify(list));
-        return list;
-      });
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'supplierDebits'));
+    let unsubDebits = () => {};
+    if (['Super Admin', 'Admin', 'Store Manager'].includes(role)) {
+      unsubDebits = onSnapshot(getTenantQuery('supplierDebits'), (snapshot) => {
+        const list: SupplierDebit[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as SupplierDebit);
+        });
+        setSupplierDebits((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem('fieldops_supplier_debits', JSON.stringify(list));
+          return list;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'supplierDebits'));
+    }
 
-    const unsubVendors = onSnapshot(getTenantQuery('vendors'), (snapshot) => {
-      const list: Vendor[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as Vendor);
-      });
-      setVendors((prev) => {
-        if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
-        localStorage.setItem('fieldops_vendors', JSON.stringify(list));
-        return list;
-      });
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'vendors'));
+    let unsubVendors = () => {};
+    if (['Super Admin', 'Admin', 'Store Manager'].includes(role)) {
+      unsubVendors = onSnapshot(getTenantQuery('vendors'), (snapshot) => {
+        const list: Vendor[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as Vendor);
+        });
+        setVendors((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem('fieldops_vendors', JSON.stringify(list));
+          return list;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'vendors'));
+    }
 
-    const unsubSales = onSnapshot(getTenantQuery('salesRecords'), (snapshot) => {
-      const list: SaleRecord[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as SaleRecord);
-      });
-      setSalesRecords((prev) => {
-        if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
-        localStorage.setItem(STORAGE_KEYS.SALES, JSON.stringify(list));
-        return list;
-      });
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'salesRecords'));
+    let unsubSales = () => {};
+    if (['Super Admin', 'Admin', 'Store Manager'].includes(role)) {
+      unsubSales = onSnapshot(getTenantQuery('salesRecords'), (snapshot) => {
+        const list: SaleRecord[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as SaleRecord);
+        });
+        setSalesRecords((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.SALES, JSON.stringify(list));
+          return list;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'salesRecords'));
+    }
 
     return () => {
       unsubUsers();
