@@ -49,7 +49,7 @@ import { EngineerPages } from './components/EngineerPages';
 import { SuperAdminPages } from './components/SuperAdminPages';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { Sparkles, Calendar, CheckCircle2, AlertCircle, Menu, LogOut, ShieldAlert, Key } from 'lucide-react';
-import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, where, getDocs, or } from 'firebase/firestore';
 import { db } from './firebase';
 import { 
   testConnection, 
@@ -342,9 +342,10 @@ export default function App() {
       }, (error) => handleFirestoreError(error, OperationType.GET, 'organisations'));
     }
 
+    // SKU Caching (Stale-While-Revalidate)
     let unsubSkus = () => {};
     if (['Super Admin', 'Admin', 'Store Manager', 'Team Leader', 'Engineer'].includes(role)) {
-      unsubSkus = onSnapshot(getTenantQuery('skus'), (snapshot) => {
+      getDocs(getTenantQuery('skus')).then((snapshot) => {
         const list: SKU[] = [];
         snapshot.forEach((doc) => {
           list.push(doc.data() as SKU);
@@ -354,7 +355,7 @@ export default function App() {
           localStorage.setItem(STORAGE_KEYS.SKUS, JSON.stringify(list));
           return list;
         });
-      }, (error) => handleFirestoreError(error, OperationType.GET, 'skus'));
+      }).catch((error) => handleFirestoreError(error, OperationType.GET, 'skus'));
     }
 
     let unsubInventory = () => {};
@@ -406,8 +407,28 @@ export default function App() {
     }
 
     let unsubLogs = () => {};
-    if (['Super Admin', 'Admin', 'Store Manager', 'Team Leader'].includes(role)) {
+    if (['Super Admin', 'Admin', 'Store Manager'].includes(role)) {
       unsubLogs = onSnapshot(getTenantQuery('productivityLogs'), (snapshot) => {
+        const list: ProductivityLog[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as ProductivityLog);
+        });
+        setProductivityLogs((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(list));
+          return list;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'productivityLogs'));
+    } else if (role === 'Team Leader') {
+      const q = query(
+        collection(db, 'productivityLogs'),
+        where('orgId', '==', userOrgId),
+        or(
+          where('status', '==', 'Pending'),
+          where('validatedBy', '==', currentUser.email)
+        )
+      );
+      unsubLogs = onSnapshot(q, (snapshot) => {
         const list: ProductivityLog[] = [];
         snapshot.forEach((doc) => {
           list.push(doc.data() as ProductivityLog);
@@ -434,7 +455,7 @@ export default function App() {
     }
 
     let unsubAttendance = () => {};
-    if (['Super Admin', 'Admin', 'Store Manager', 'Team Leader'].includes(role)) {
+    if (['Super Admin', 'Admin', 'Team Leader'].includes(role)) {
       unsubAttendance = onSnapshot(collection(db, 'attendance'), (snapshot) => {
         const obj: AttendanceRecord = {};
         snapshot.forEach((doc) => {
@@ -449,7 +470,7 @@ export default function App() {
           return obj;
         });
       }, (error) => handleFirestoreError(error, OperationType.GET, 'attendance'));
-    } else if (role === 'Engineer' && currentUser.email) {
+    } else if (['Store Manager', 'Engineer'].includes(role) && currentUser.email) {
       unsubAttendance = onSnapshot(doc(db, 'attendance', currentUser.email), (docSnap) => {
         const obj: AttendanceRecord = {};
         if (docSnap.exists()) {
@@ -525,8 +546,21 @@ export default function App() {
     }
 
     let unsubLpReqs = () => {};
-    if (['Super Admin', 'Admin', 'Store Manager', 'Team Leader'].includes(role)) {
+    if (['Super Admin', 'Admin', 'Store Manager'].includes(role)) {
       unsubLpReqs = onSnapshot(getTenantQuery('lpRequests'), (snapshot) => {
+        const list: LPRequest[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as LPRequest);
+        });
+        setLpRequests((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.LP_REQS, JSON.stringify(list));
+          return list;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'lpRequests'));
+    } else if (role === 'Team Leader') {
+      const q = query(collection(db, 'lpRequests'), where('orgId', '==', userOrgId), where('tlEmail', '==', currentUser.email));
+      unsubLpReqs = onSnapshot(q, (snapshot) => {
         const list: LPRequest[] = [];
         snapshot.forEach((doc) => {
           list.push(doc.data() as LPRequest);
@@ -553,7 +587,7 @@ export default function App() {
     }
 
     let unsubAttendanceReqs = () => {};
-    if (['Super Admin', 'Admin', 'Store Manager', 'Team Leader'].includes(role)) {
+    if (['Super Admin', 'Admin'].includes(role)) {
       unsubAttendanceReqs = onSnapshot(getTenantQuery('attendanceRequests'), (snapshot) => {
         const list: AttendanceRequest[] = [];
         snapshot.forEach((doc) => {
@@ -565,7 +599,7 @@ export default function App() {
           return list;
         });
       }, (error) => handleFirestoreError(error, OperationType.GET, 'attendanceRequests'));
-    } else if (role === 'Engineer') {
+    } else if (['Store Manager', 'Team Leader', 'Engineer'].includes(role)) {
       const q = query(collection(db, 'attendanceRequests'), where('orgId', '==', userOrgId), where('submittedBy', '==', currentUser.email));
       unsubAttendanceReqs = onSnapshot(q, (snapshot) => {
         const list: AttendanceRequest[] = [];
