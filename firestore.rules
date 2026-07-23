@@ -48,7 +48,7 @@ service cloud.firestore {
       return data.keys().hasAll(['email', 'name', 'role']) 
         && data.email is string && data.email.size() > 0 && data.email.size() <= 128
         && data.name is string && data.name.size() > 0 && data.name.size() <= 128
-        && data.role is string && data.role in ['Super Admin', 'Admin', 'Store Manager', 'Team Leader', 'Engineer']
+        && data.role is string && data.role in ['Super Admin', 'Admin', 'Store Manager', 'Team Leader', 'Engineer', 'Backend Executive']
         && (!('orgId' in data) || data.orgId is string)
         && (!('password' in data) || data.password is string)
         && (!('invitationStatus' in data) || data.invitationStatus is string)
@@ -110,7 +110,7 @@ service cloud.firestore {
         && data.date is string && data.date.size() <= 32
         && data.status is string && data.status in ['Present', 'Leave']
         && data.submittedBy is string && data.submittedBy.size() <= 128
-        && data.submittedByRole is string && data.submittedByRole in ['Team Leader', 'Store Manager']
+        && data.submittedByRole is string && data.submittedByRole in ['Team Leader', 'Store Manager', 'Backend Executive']
         && data.approvedStatus is string && data.approvedStatus in ['Pending', 'Approved', 'Rejected']
         && data.orgId is string
         && (!('remarks' in data) || data.remarks is string);

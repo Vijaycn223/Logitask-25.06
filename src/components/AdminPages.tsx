@@ -3769,6 +3769,7 @@ function AdminPagesInner({
                   <option value="Engineer">Engineer (Field worker)</option>
                   <option value="Team Leader">Team Leader (Supervisor)</option>
                   <option value="Store Manager">Store Manager (Inventory Controller)</option>
+                  <option value="Backend Executive">Backend Executive</option>
                 </select>
               </div>
 
@@ -4971,6 +4972,7 @@ function UserEditModalBody({ user, onSave, onClose }: UserEditModalBodyProps) {
           <option value="Engineer">Engineer</option>
           <option value="Team Leader">Team Leader</option>
           <option value="Store Manager">Store Manager</option>
+          <option value="Backend Executive">Backend Executive</option>
         </select>
       </div>
       <div>

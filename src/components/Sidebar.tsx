@@ -95,6 +95,10 @@ const SIDEBAR_ITEMS: Record<UserRole, Array<{ type: 'section'; label: string } |
     { type: 'section', label: 'Inventory' },
     { type: 'item', page: 'eng-stock', label: 'My Van Stock', icon: Truck },
   ],
+  'Backend Executive': [
+    { type: 'section', label: 'My Work' },
+    { type: 'item', page: 'be-attendance', label: 'Mark Attendance', icon: Calendar },
+  ],
 };
 
 export function Sidebar({ currentUser, activeTab, onPageChange, onLogout, onCloseSidebar }: SidebarProps) {

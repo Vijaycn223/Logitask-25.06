@@ -48,6 +48,7 @@ import { AdminBilling } from './components/AdminBilling';
 import { EngineerPages } from './components/EngineerPages';
 import { SuperAdminPages } from './components/SuperAdminPages';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
+import { BackendExecutivePages } from './components/BackendExecutivePages';
 import { Sparkles, Calendar, CheckCircle2, AlertCircle, Menu, LogOut, ShieldAlert, Key } from 'lucide-react';
 import { collection, doc, onSnapshot, query, where, getDocs, or, and } from 'firebase/firestore';
 import { db } from './firebase';
@@ -534,7 +535,7 @@ export default function App() {
           return obj;
         });
       }, (error) => handleFirestoreError(error, OperationType.GET, 'attendance'));
-    } else if (['Store Manager', 'Engineer'].includes(role) && currentUser.email) {
+    } else if (['Store Manager', 'Engineer', 'Backend Executive'].includes(role) && currentUser.email) {
       unsubAttendance = onSnapshot(doc(db, 'attendance', currentUser.email), (docSnap) => {
         const obj: AttendanceRecord = {};
         if (docSnap.exists()) {
@@ -663,7 +664,7 @@ export default function App() {
           return list;
         });
       }, (error) => handleFirestoreError(error, OperationType.GET, 'attendanceRequests'));
-    } else if (['Store Manager', 'Team Leader', 'Engineer'].includes(role)) {
+    } else if (['Store Manager', 'Team Leader', 'Engineer', 'Backend Executive'].includes(role)) {
       const q = query(collection(db, 'attendanceRequests'), where('orgId', '==', userOrgId), where('submittedBy', '==', currentUser.email));
       unsubAttendanceReqs = onSnapshot(q, (snapshot) => {
         const list: AttendanceRequest[] = [];
@@ -1047,6 +1048,7 @@ export default function App() {
     if (role === 'Admin') return 'admin-approvals';
     if (role === 'Store Manager') return 'store-dashboard';
     if (role === 'Team Leader') return 'tl-approvals';
+    if (role === 'Backend Executive') return 'be-attendance';
     return 'eng-dashboard';
   };
 
@@ -1971,6 +1973,21 @@ export default function App() {
                     const withOrg = { ...log, orgId: userOrgId };
                     adjustStockForLogChange(productivityLogs, [withOrg]);
                     syncState(STORAGE_KEYS.LOGS, [...productivityLogs, withOrg], setProductivityLogs);
+                  }}
+                  onAddToast={addToast}
+                />
+              );
+            }
+
+            if (currentUser.role === 'Backend Executive') {
+              return (
+                <BackendExecutivePages
+                  currentUser={currentUser}
+                  attendance={filteredAttendance}
+                  attendanceRequests={filteredAttendanceRequests}
+                  onAddAttendanceRequest={(req) => {
+                    const withOrg = { ...req, orgId: userOrgId };
+                    syncState(STORAGE_KEYS.ATTENDANCE_REQS, [...attendanceRequests, withOrg], setAttendanceRequests);
                   }}
                   onAddToast={addToast}
                 />
