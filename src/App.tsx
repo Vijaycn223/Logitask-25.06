@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { getUser } from './utils';
+import { getUser, getMonthRange } from './utils';
 import {
   User,
   SKU,
@@ -206,11 +206,12 @@ export default function App() {
 
   // Authenticated state
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [selectedTLMonth, setSelectedTLMonth] = useState<string>(() => getMonthRange().prefix);
   const [activeTab, setActiveTab] = useState<string>('');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-
+ 
   // Toast notifications state
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -440,7 +441,9 @@ export default function App() {
       const qApproved = query(
         collection(db, 'productivityLogs'),
         where('orgId', '==', userOrgId),
-        where('status', '==', 'Approved')
+        where('status', '==', 'Approved'),
+        where('date', '>=', `${selectedTLMonth}-01`),
+        where('date', '<=', `${selectedTLMonth}-31`)
       );
 
       const logsMap: Record<string, ProductivityLog> = {};
@@ -777,7 +780,7 @@ export default function App() {
       unsubVendors();
       unsubSales();
     };
-  }, [currentUser, offlineMode]);
+  }, [currentUser, offlineMode, selectedTLMonth]);
 
   // Self-healing: Ensure all approved productivity logs are synced to the attendance register
   useEffect(() => {
@@ -1901,13 +1904,15 @@ export default function App() {
                   }}
                   onUpdateLogStatus={(id, status, note, validatedBy) => {
                     const updated = productivityLogs.map((l) => {
-                      if (l.id === id) return { ...l, status, tlNote: note, validatedBy, orgId: l.orgId || userOrgId };
-                      return l;
+                       if (l.id === id) return { ...l, status, tlNote: note, validatedBy, orgId: l.orgId || userOrgId };
+                       return l;
                     });
                     adjustStockForLogChange(productivityLogs, updated);
                     syncState(STORAGE_KEYS.LOGS, updated, setProductivityLogs);
                   }}
                   onAddToast={addToast}
+                  selectedTLMonth={selectedTLMonth}
+                  setSelectedTLMonth={setSelectedTLMonth}
                 />
               );
             }

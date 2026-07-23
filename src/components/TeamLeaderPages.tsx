@@ -23,6 +23,8 @@ interface TeamLeaderPagesProps {
   onUpdateLpRequests: (lp: LPRequest[]) => void;
   onUpdateLogStatus: (id: string, status: 'Validated by TL' | 'Rejected', note: string, validatedBy: string) => void;
   onAddToast: (msg: string, type?: 'success' | 'error') => void;
+  selectedTLMonth: string;
+  setSelectedTLMonth: (month: string) => void;
 }
 
 export function TeamLeaderPages({
@@ -40,6 +42,8 @@ export function TeamLeaderPages({
   onUpdateLpRequests,
   onUpdateLogStatus,
   onAddToast,
+  selectedTLMonth,
+  setSelectedTLMonth,
 }: TeamLeaderPagesProps) {
   const { prefix: currentMonthPrefix, label: currentMonthLabel } = getMonthRange();
   const engineers = users.filter((u) => u.role === 'Engineer');
@@ -83,7 +87,6 @@ export function TeamLeaderPages({
   // Local notes state for textareas
   const [tlNotes, setTlNotes] = useState<Record<string, string>>({});
   const [processingProductivityIds, setProcessingProductivityIds] = useState<string[]>([]);
-  const [selectedTLMonth, setSelectedTLMonth] = useState(currentMonthPrefix);
 
   const getMonthLabel = (mPrefix: string) => {
     if (mPrefix === currentMonthPrefix) return currentMonthLabel;
