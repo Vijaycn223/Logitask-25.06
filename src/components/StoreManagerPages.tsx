@@ -171,43 +171,6 @@ export function StoreManagerPages({
     }
   }, [smQueueTab, selectedSMMonth, onFetchProcessedLogs]);
 
-  // On-demand processed stock requests states
-  const [localProcessedStockRequests, setLocalProcessedStockRequests] = useState<StockRequest[]>([]);
-  const [recentlyProcessedStockRequests, setRecentlyProcessedStockRequests] = useState<StockRequest[]>([]);
-  const [processedStockRequestsCount, setProcessedStockRequestsCount] = useState<number>(0);
-  const [isLoadingProcessedStockRequests, setIsLoadingProcessedStockRequests] = useState(false);
-
-  // Sync count on load/month-switch and reset history cache for stock requests
-  React.useEffect(() => {
-    setLocalProcessedStockRequests([]);
-    setRecentlyProcessedStockRequests([]);
-    if (!onFetchProcessedStockRequestsCount) return;
-    onFetchProcessedStockRequestsCount()
-      .then((count) => {
-        setProcessedStockRequestsCount(count);
-      })
-      .catch((err) => {
-        console.error('Failed to fetch processed stock requests count:', err);
-      });
-  }, [selectedSMMonth, onFetchProcessedStockRequestsCount]);
-
-  // Fetch actual processed requests on-demand when user clicks Processed tab
-  React.useEffect(() => {
-    if (srActiveTab === 'processed' && localProcessedStockRequests.length === 0 && onFetchProcessedStockRequests) {
-      setIsLoadingProcessedStockRequests(true);
-      onFetchProcessedStockRequests()
-        .then((reqs) => {
-          setLocalProcessedStockRequests(reqs);
-        })
-        .catch((err) => {
-          console.error('Failed to fetch processed stock requests:', err);
-          onAddToast('Failed to load processed requests history', 'error');
-        })
-        .finally(() => {
-          setIsLoadingProcessedStockRequests(false);
-        });
-    }
-  }, [srActiveTab, selectedSMMonth, onFetchProcessedStockRequests]);
   const [selectedPONumbers, setSelectedPONumbers] = useState<Record<string, string>>({});
   const [poReceivedValues, setPoReceivedValues] = useState<Record<string, string>>({});
   const [editingInwardId, setEditingInwardId] = useState<string | null>(null);
@@ -659,6 +622,44 @@ export function StoreManagerPages({
   const [srSelectedEng, setSrSelectedEng] = useState('');
   const [srSelectedSku, setSrSelectedSku] = useState('');
   const [srSelectedStatus, setSrSelectedStatus] = useState('');
+
+  // On-demand processed stock requests states
+  const [localProcessedStockRequests, setLocalProcessedStockRequests] = useState<StockRequest[]>([]);
+  const [recentlyProcessedStockRequests, setRecentlyProcessedStockRequests] = useState<StockRequest[]>([]);
+  const [processedStockRequestsCount, setProcessedStockRequestsCount] = useState<number>(0);
+  const [isLoadingProcessedStockRequests, setIsLoadingProcessedStockRequests] = useState(false);
+
+  // Sync count on load/month-switch and reset history cache for stock requests
+  React.useEffect(() => {
+    setLocalProcessedStockRequests([]);
+    setRecentlyProcessedStockRequests([]);
+    if (!onFetchProcessedStockRequestsCount) return;
+    onFetchProcessedStockRequestsCount()
+      .then((count) => {
+        setProcessedStockRequestsCount(count);
+      })
+      .catch((err) => {
+        console.error('Failed to fetch processed stock requests count:', err);
+      });
+  }, [selectedSMMonth, onFetchProcessedStockRequestsCount]);
+
+  // Fetch actual processed requests on-demand when user clicks Processed tab
+  React.useEffect(() => {
+    if (srActiveTab === 'processed' && localProcessedStockRequests.length === 0 && onFetchProcessedStockRequests) {
+      setIsLoadingProcessedStockRequests(true);
+      onFetchProcessedStockRequests()
+        .then((reqs) => {
+          setLocalProcessedStockRequests(reqs);
+        })
+        .catch((err) => {
+          console.error('Failed to fetch processed stock requests:', err);
+          onAddToast('Failed to load processed requests history', 'error');
+        })
+        .finally(() => {
+          setIsLoadingProcessedStockRequests(false);
+        });
+    }
+  }, [srActiveTab, selectedSMMonth, onFetchProcessedStockRequests]);
 
   const processedRequests = React.useMemo(() => {
     const map = new Map<string, StockRequest>();
