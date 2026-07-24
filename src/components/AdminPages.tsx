@@ -668,7 +668,7 @@ function AdminPagesInner({
 
   // --- 4. ATTENDANCE REGISTER STATS & GAGE ---
   const matrixEngineers = users.filter((u) => u.role === 'Engineer');
-  const attendanceUsers = users.filter((u) => u.orgId === currentUser.orgId && (u.role === 'Engineer' || u.role === 'Team Leader' || u.role === 'Store Manager'));
+  const attendanceUsers = users.filter((u) => u.orgId === currentUser.orgId && (u.role === 'Engineer' || u.role === 'Team Leader' || u.role === 'Store Manager' || u.role === 'Backend Executive'));
 
   // Collect list of available months in productivity history to seed select
   const currentMonthPrefix = new Date().toISOString().substring(0, 7);
@@ -3720,7 +3720,7 @@ function AdminPagesInner({
   }
 
   if (activeTab === 'admin-user-registry') {
-    const activeStaffUsersTLSM = users.filter((u) => u.orgId === currentUser.orgId && (u.role === 'Team Leader' || u.role === 'Store Manager'));
+    const activeStaffUsersTLSM = users.filter((u) => u.orgId === currentUser.orgId && (u.role === 'Team Leader' || u.role === 'Store Manager' || u.role === 'Backend Executive'));
     const activeStaffUsersEngs = users.filter((u) => u.orgId === currentUser.orgId && u.role === 'Engineer');
 
     return (

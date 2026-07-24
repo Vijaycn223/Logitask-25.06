@@ -936,6 +936,7 @@ export function SuperAdminPages({
                               u.role === 'Admin' ? 'bg-indigo-100 text-indigo-700' :
                               u.role === 'Store Manager' ? 'bg-emerald-100 text-emerald-700' :
                               u.role === 'Team Leader' ? 'bg-amber-100 text-amber-700' :
+                              u.role === 'Backend Executive' ? 'bg-cyan-100 text-cyan-700' :
                               'bg-slate-100 text-slate-700'
                             }`}>
                               {u.role}
