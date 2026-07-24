@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { User, PurchaseInward, SupplierDebit } from '../types';
+import { User, PurchaseInward, SupplierDebit, Vendor } from '../types';
 import { fmtCur, genId, fmtDate } from '../utils';
 import { ClipboardList, Plus, FileText, Send, Calendar, Landmark, BookOpen } from 'lucide-react';
 
@@ -15,6 +15,8 @@ interface SupplierLedgerViewProps {
   onAddSupplierDebit: (sd: SupplierDebit) => void;
   onAddToast: (msg: string, type?: 'success' | 'error') => void;
   mode: 'Admin' | 'Store Manager';
+  vendors?: Vendor[];
+  onFetchHistoricalLedger?: (supplierName: string) => Promise<{ purchases: PurchaseInward[], debits: SupplierDebit[] }>;
 }
 
 export function SupplierLedgerView({
@@ -24,6 +26,8 @@ export function SupplierLedgerView({
   onAddSupplierDebit,
   onAddToast,
   mode,
+  vendors = [],
+  onFetchHistoricalLedger,
 }: SupplierLedgerViewProps) {
   const [selectedSupplier, setSelectedSupplier] = useState('');
   const [debitDate, setDebitDate] = useState(() => new Date().toISOString().substring(0, 10));
@@ -35,9 +39,53 @@ export function SupplierLedgerView({
   const [ledgerFromDate, setLedgerFromDate] = useState('');
   const [ledgerToDate, setLedgerToDate] = useState('');
 
-  // Extract unique suppliers from purchaseInwards (vendors) and supplierDebits (suppliers)
+  // On-demand historical transaction states
+  const [historicalPurchases, setHistoricalPurchases] = useState<PurchaseInward[]>([]);
+  const [historicalDebits, setHistoricalDebits] = useState<SupplierDebit[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+
+  // Trigger historical fetch when supplier is selected
+  React.useEffect(() => {
+    if (!selectedSupplier || !onFetchHistoricalLedger) {
+      setHistoricalPurchases([]);
+      setHistoricalDebits([]);
+      return;
+    }
+
+    setIsLoadingHistory(true);
+    onFetchHistoricalLedger(selectedSupplier)
+      .then(({ purchases, debits }) => {
+        setHistoricalPurchases(purchases);
+        setHistoricalDebits(debits);
+      })
+      .catch((err) => {
+        console.error('Failed to load supplier history:', err);
+        onAddToast('Failed to load historical supplier records', 'error');
+      })
+      .finally(() => {
+        setIsLoadingHistory(false);
+      });
+  }, [selectedSupplier, onFetchHistoricalLedger]);
+
+  // Combine real-time active month + on-demand historical transactions
+  const combinedPurchases = React.useMemo(() => {
+    const map = new Map<string, PurchaseInward>();
+    purchaseInward.forEach(p => map.set(p.id, p));
+    historicalPurchases.forEach(p => map.set(p.id, p));
+    return Array.from(map.values());
+  }, [purchaseInward, historicalPurchases]);
+
+  const combinedDebits = React.useMemo(() => {
+    const map = new Map<string, SupplierDebit>();
+    supplierDebits.forEach(d => map.set(d.id, d));
+    historicalDebits.forEach(d => map.set(d.id, d));
+    return Array.from(map.values());
+  }, [supplierDebits, historicalDebits]);
+
+  // Extract unique suppliers from vendors collection, purchaseInwards and supplierDebits
   const uniqueSuppliers = Array.from(
     new Set([
+      ...vendors.map((v) => v.name).filter(Boolean),
       ...purchaseInward.map((p) => p.vendor).filter(Boolean),
       ...supplierDebits.map((d) => d.supplier).filter(Boolean),
     ])
@@ -100,7 +148,7 @@ export function SupplierLedgerView({
     }
 
     // 1. Credit inwards (only approved purchase inwards represent active credit)
-    const credits = purchaseInward
+    const credits = combinedPurchases
       .filter((p) => p.vendor === selectedSupplier && p.status === 'Approved')
       .map((p) => ({
         id: p.id,
@@ -114,7 +162,7 @@ export function SupplierLedgerView({
       }));
 
     // 2. Debits (payments)
-    const debits = supplierDebits
+    const debits = combinedDebits
       .filter((d) => d.supplier === selectedSupplier)
       .map((d) => ({
         id: d.id,
@@ -165,7 +213,7 @@ export function SupplierLedgerView({
       totalDebitPaidForPeriod: totalDebit,
       currentOutstandingForPeriod: runningBalance,
     };
-  }, [selectedSupplier, purchaseInward, supplierDebits, ledgerFromDate, ledgerToDate]);
+  }, [selectedSupplier, combinedPurchases, combinedDebits, ledgerFromDate, ledgerToDate]);
 
   // Download CSV helper (incorporating opening balance & period filter)
   const handleDownloadCSV = () => {
@@ -456,7 +504,16 @@ export function SupplierLedgerView({
                       </tr>
                     )}
 
-                    {filteredEntries.length === 0 ? (
+                    {isLoadingHistory ? (
+                      <tr>
+                        <td colSpan={7} className="py-8 text-center text-xs font-semibold text-slate-400">
+                          <div className="flex items-center justify-center gap-2">
+                            <div className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+                            <span>Loading historical transactions...</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : filteredEntries.length === 0 ? (
                       <tr>
                         <td colSpan={7} className="py-8 text-center text-xs font-semibold text-slate-400">
                           No approved credit inwards or debits recorded for this supplier during this period.

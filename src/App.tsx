@@ -688,7 +688,7 @@ export default function App() {
     }
 
     let unsubPurchases = () => {};
-    if (['Super Admin', 'Admin', 'Store Manager'].includes(role)) {
+    if (['Super Admin', 'Admin'].includes(role)) {
       unsubPurchases = onSnapshot(getTenantQuery('purchaseInward'), (snapshot) => {
         const list: PurchaseInward[] = [];
         snapshot.forEach((doc) => {
@@ -700,6 +700,54 @@ export default function App() {
           return list;
         });
       }, (error) => handleFirestoreError(error, OperationType.GET, 'purchaseInward'));
+    } else if (role === 'Store Manager') {
+      const qPending = query(
+        collection(db, 'purchaseInward'),
+        where('orgId', '==', userOrgId),
+        where('status', '==', 'Pending')
+      );
+      const qActiveMonth = query(
+        collection(db, 'purchaseInward'),
+        where('orgId', '==', userOrgId),
+        where('date', '>=', `${selectedSMMonth}-01`),
+        where('date', '<=', `${selectedSMMonth}-31`)
+      );
+
+      const purchaseMap: Record<string, PurchaseInward> = {};
+
+      const updatePurchases = () => {
+        const list = Object.values(purchaseMap);
+        setPurchaseInward((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify(list));
+          return list;
+        });
+      };
+
+      const unsubPurchases1 = onSnapshot(qPending, (snapshot) => {
+        snapshot.forEach((doc) => {
+          purchaseMap[doc.id] = doc.data() as PurchaseInward;
+        });
+        updatePurchases();
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'purchaseInward'));
+
+      const unsubPurchases2 = onSnapshot(qActiveMonth, (snapshot) => {
+        // Clear old mapped non-pending items to avoid bleed when switching months
+        Object.keys(purchaseMap).forEach(key => {
+          if (purchaseMap[key].status !== 'Pending') {
+            delete purchaseMap[key];
+          }
+        });
+        snapshot.forEach((doc) => {
+          purchaseMap[doc.id] = doc.data() as PurchaseInward;
+        });
+        updatePurchases();
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'purchaseInward'));
+
+      unsubPurchases = () => {
+        unsubPurchases1();
+        unsubPurchases2();
+      };
     }
 
     let unsubRevokes = () => {};
@@ -830,8 +878,26 @@ export default function App() {
     }
 
     let unsubDebits = () => {};
-    if (['Super Admin', 'Admin', 'Store Manager'].includes(role)) {
+    if (['Super Admin', 'Admin'].includes(role)) {
       unsubDebits = onSnapshot(getTenantQuery('supplierDebits'), (snapshot) => {
+        const list: SupplierDebit[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as SupplierDebit);
+        });
+        setSupplierDebits((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem('fieldops_supplier_debits', JSON.stringify(list));
+          return list;
+        });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'supplierDebits'));
+    } else if (role === 'Store Manager') {
+      const qActiveMonth = query(
+        collection(db, 'supplierDebits'),
+        where('orgId', '==', userOrgId),
+        where('date', '>=', `${selectedSMMonth}-01`),
+        where('date', '<=', `${selectedSMMonth}-31`)
+      );
+      unsubDebits = onSnapshot(qActiveMonth, (snapshot) => {
         const list: SupplierDebit[] = [];
         snapshot.forEach((doc) => {
           list.push(doc.data() as SupplierDebit);
@@ -1381,6 +1447,39 @@ export default function App() {
       syncState(STORAGE_KEYS.ENG_STOCK, nextEngStock, setEngineerStock);
     }
   };
+  const handleFetchHistoricalLedger = async (supplierName: string) => {
+    const qPurchases = query(
+      collection(db, 'purchaseInward'),
+      where('orgId', '==', currentUser?.orgId || ''),
+      where('vendor', '==', supplierName),
+      where('status', '==', 'Approved'),
+      where('date', '<', `${selectedSMMonth}-01`)
+    );
+
+    const qDebits = query(
+      collection(db, 'supplierDebits'),
+      where('orgId', '==', currentUser?.orgId || ''),
+      where('supplier', '==', supplierName),
+      where('date', '<', `${selectedSMMonth}-01`)
+    );
+
+    const [purchasesSnap, debitsSnap] = await Promise.all([
+      getDocs(qPurchases),
+      getDocs(qDebits)
+    ]);
+
+    const purchases: PurchaseInward[] = [];
+    purchasesSnap.forEach((doc) => {
+      purchases.push(doc.data() as PurchaseInward);
+    });
+
+    const debits: SupplierDebit[] = [];
+    debitsSnap.forEach((doc) => {
+      debits.push(doc.data() as SupplierDebit);
+    });
+
+    return { purchases, debits };
+  };
 
 
 
@@ -1830,6 +1929,7 @@ export default function App() {
                   supplierDebits={filteredSupplierDebits}
                   onAddSupplierDebit={(sd) => syncState('fieldops_supplier_debits', [...supplierDebits, { ...sd, orgId: userOrgId }], setSupplierDebits)}
                   vendors={filteredVendors}
+                  onFetchHistoricalLedger={handleFetchHistoricalLedger}
                   onAddVendor={(v) => syncState('fieldops_vendors', [...vendors, { ...v, orgId: userOrgId }], setVendors)}
                   returnRequests={filteredReturnRequests}
                   activeTab={activeTab}

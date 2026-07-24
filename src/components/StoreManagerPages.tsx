@@ -75,6 +75,7 @@ interface StoreManagerPagesProps {
   salesRecords: SaleRecord[];
   onAddSaleRecord: (sale: SaleRecord) => void;
   onUpdateSalesRecords: (sales: SaleRecord[]) => void;
+  onFetchHistoricalLedger?: (supplierName: string) => Promise<{ purchases: PurchaseInward[], debits: SupplierDebit[] }>;
 }
 
 export function StoreManagerPages({
@@ -114,6 +115,7 @@ export function StoreManagerPages({
   onAddToast,
   onUpdateSkus,
   onUpdateInventory,
+  onFetchHistoricalLedger,
 }: StoreManagerPagesProps) {
   const currentMonthPrefix = getMonthRange().prefix;
 
@@ -3361,6 +3363,8 @@ export function StoreManagerPages({
         onAddSupplierDebit={onAddSupplierDebit}
         onAddToast={onAddToast}
         mode="Store Manager"
+        vendors={vendors}
+        onFetchHistoricalLedger={onFetchHistoricalLedger}
       />
     );
   }
