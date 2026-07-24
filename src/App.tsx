@@ -390,7 +390,7 @@ export default function App() {
 
     let unsubEngStock = () => {};
     if (['Super Admin', 'Admin', 'Store Manager'].includes(role)) {
-      unsubEngStock = onSnapshot(getTenantQuery('engineerStock'), (snapshot) => {
+      unsubEngStock = onSnapshot(collection(db, 'engineerStock'), (snapshot) => {
         const obj: EngineerStock = {};
         snapshot.forEach((doc) => {
           const data = doc.data();
