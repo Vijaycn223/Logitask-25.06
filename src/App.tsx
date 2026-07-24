@@ -50,7 +50,7 @@ import { SuperAdminPages } from './components/SuperAdminPages';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { BackendExecutivePages } from './components/BackendExecutivePages';
 import { Sparkles, Calendar, CheckCircle2, AlertCircle, Menu, LogOut, ShieldAlert, Key } from 'lucide-react';
-import { collection, doc, onSnapshot, query, where, getDocs, or, and } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, where, getDocs, or, and, getCountFromServer } from 'firebase/firestore';
 import { db } from './firebase';
 import { 
   testConnection, 
@@ -440,53 +440,17 @@ export default function App() {
         where('orgId', '==', userOrgId),
         where('status', '==', 'Validated by TL')
       );
-      const qProcessed = query(
-        collection(db, 'productivityLogs'),
-        where('orgId', '==', userOrgId),
-        where('status', 'in', ['Validated by SM', 'Approved', 'Rejected']),
-        where('date', '>=', `${selectedSMMonth}-01`),
-        where('date', '<=', `${selectedSMMonth}-31`)
-      );
-
-      const logsMap: Record<string, ProductivityLog> = {};
-
-      const updateLogs = () => {
-        const list = Object.values(logsMap);
+      unsubLogs = onSnapshot(qPending, (snapshot) => {
+        const list: ProductivityLog[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as ProductivityLog);
+        });
         setProductivityLogs((prev) => {
           if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
           localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(list));
           return list;
         });
-      };
-
-      const unsubLogs1 = onSnapshot(qPending, (snapshot) => {
-        Object.keys(logsMap).forEach((id) => {
-          if (logsMap[id].status === 'Validated by TL' && !snapshot.docs.some(doc => doc.id === id)) {
-            delete logsMap[id];
-          }
-        });
-        snapshot.forEach((doc) => {
-          logsMap[doc.id] = doc.data() as ProductivityLog;
-        });
-        updateLogs();
       }, (error) => handleFirestoreError(error, OperationType.GET, 'productivityLogs'));
-
-      const unsubLogs2 = onSnapshot(qProcessed, (snapshot) => {
-        Object.keys(logsMap).forEach((id) => {
-          if (['Validated by SM', 'Approved', 'Rejected'].includes(logsMap[id].status) && !snapshot.docs.some(doc => doc.id === id)) {
-            delete logsMap[id];
-          }
-        });
-        snapshot.forEach((doc) => {
-          logsMap[doc.id] = doc.data() as ProductivityLog;
-        });
-        updateLogs();
-      }, (error) => handleFirestoreError(error, OperationType.GET, 'productivityLogs'));
-
-      unsubLogs = () => {
-        unsubLogs1();
-        unsubLogs2();
-      };
     } else if (role === 'Team Leader') {
       const qPending = query(
         collection(db, 'productivityLogs'),
@@ -1481,6 +1445,34 @@ export default function App() {
     return { purchases, debits };
   };
 
+  const handleFetchProcessedLogs = async () => {
+    const qProcessed = query(
+      collection(db, 'productivityLogs'),
+      where('orgId', '==', currentUser?.orgId || ''),
+      where('status', 'in', ['Validated by SM', 'Approved', 'Rejected']),
+      where('date', '>=', `${selectedSMMonth}-01`),
+      where('date', '<=', `${selectedSMMonth}-31`)
+    );
+    const snap = await getDocs(qProcessed);
+    const list: ProductivityLog[] = [];
+    snap.forEach((doc) => {
+      list.push(doc.data() as ProductivityLog);
+    });
+    return list;
+  };
+
+  const handleFetchProcessedLogsCount = async () => {
+    const qProcessed = query(
+      collection(db, 'productivityLogs'),
+      where('orgId', '==', currentUser?.orgId || ''),
+      where('status', 'in', ['Validated by SM', 'Approved', 'Rejected']),
+      where('date', '>=', `${selectedSMMonth}-01`),
+      where('date', '<=', `${selectedSMMonth}-31`)
+    );
+    const snapshot = await getCountFromServer(qProcessed);
+    return snapshot.data().count;
+  };
+
 
 
   if (!currentUser) {
@@ -1930,6 +1922,8 @@ export default function App() {
                   onAddSupplierDebit={(sd) => syncState('fieldops_supplier_debits', [...supplierDebits, { ...sd, orgId: userOrgId }], setSupplierDebits)}
                   vendors={filteredVendors}
                   onFetchHistoricalLedger={handleFetchHistoricalLedger}
+                  onFetchProcessedLogs={handleFetchProcessedLogs}
+                  onFetchProcessedLogsCount={handleFetchProcessedLogsCount}
                   onAddVendor={(v) => syncState('fieldops_vendors', [...vendors, { ...v, orgId: userOrgId }], setVendors)}
                   returnRequests={filteredReturnRequests}
                   activeTab={activeTab}

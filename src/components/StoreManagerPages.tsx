@@ -76,6 +76,8 @@ interface StoreManagerPagesProps {
   onAddSaleRecord: (sale: SaleRecord) => void;
   onUpdateSalesRecords: (sales: SaleRecord[]) => void;
   onFetchHistoricalLedger?: (supplierName: string) => Promise<{ purchases: PurchaseInward[], debits: SupplierDebit[] }>;
+  onFetchProcessedLogs?: () => Promise<ProductivityLog[]>;
+  onFetchProcessedLogsCount?: () => Promise<number>;
 }
 
 export function StoreManagerPages({
@@ -116,6 +118,8 @@ export function StoreManagerPages({
   onUpdateSkus,
   onUpdateInventory,
   onFetchHistoricalLedger,
+  onFetchProcessedLogs,
+  onFetchProcessedLogsCount,
 }: StoreManagerPagesProps) {
   const currentMonthPrefix = getMonthRange().prefix;
 
@@ -124,6 +128,44 @@ export function StoreManagerPages({
   const [smNotes, setSmNotes] = useState<Record<string, string>>({});
   const [processingStockRequestIds, setProcessingStockRequestIds] = useState<string[]>([]);
   const [processingProductivityIds, setProcessingProductivityIds] = useState<string[]>([]);
+
+  // On-demand processed logs states
+  const [localProcessedLogs, setLocalProcessedLogs] = useState<ProductivityLog[]>([]);
+  const [recentlyProcessedLogs, setRecentlyProcessedLogs] = useState<ProductivityLog[]>([]);
+  const [processedLogsCount, setProcessedLogsCount] = useState<number>(0);
+  const [isLoadingProcessedLogs, setIsLoadingProcessedLogs] = useState(false);
+
+  // Sync count on load/month-switch and reset history cache
+  React.useEffect(() => {
+    setLocalProcessedLogs([]);
+    setRecentlyProcessedLogs([]);
+    if (!onFetchProcessedLogsCount) return;
+    onFetchProcessedLogsCount()
+      .then((count) => {
+        setProcessedLogsCount(count);
+      })
+      .catch((err) => {
+        console.error('Failed to fetch processed logs count:', err);
+      });
+  }, [selectedSMMonth, onFetchProcessedLogsCount]);
+
+  // Fetch actual documents on-demand when user clicks Processed History tab
+  React.useEffect(() => {
+    if (smQueueTab === 'done' && localProcessedLogs.length === 0 && onFetchProcessedLogs) {
+      setIsLoadingProcessedLogs(true);
+      onFetchProcessedLogs()
+        .then((logs) => {
+          setLocalProcessedLogs(logs);
+        })
+        .catch((err) => {
+          console.error('Failed to fetch processed logs:', err);
+          onAddToast('Failed to load processed history', 'error');
+        })
+        .finally(() => {
+          setIsLoadingProcessedLogs(false);
+        });
+    }
+  }, [smQueueTab, selectedSMMonth, onFetchProcessedLogs]);
   const [selectedPONumbers, setSelectedPONumbers] = useState<Record<string, string>>({});
   const [poReceivedValues, setPoReceivedValues] = useState<Record<string, string>>({});
   const [editingInwardId, setEditingInwardId] = useState<string | null>(null);
@@ -472,7 +514,13 @@ export function StoreManagerPages({
   const engineers = users.filter((u) => u.role === 'Engineer');
 
   const smPendingList = productivityLogs.filter((l) => l.status === 'Validated by TL').sort((a, b) => a.date.localeCompare(b.date));
-  const smDoneList = productivityLogs.filter((l) => l.status === 'Validated by SM' || l.status === 'Approved' || l.status === 'Rejected').sort((a, b) => b.date.localeCompare(a.date));
+  
+  const smDoneList = React.useMemo(() => {
+    const map = new Map<string, ProductivityLog>();
+    localProcessedLogs.forEach(l => map.set(l.id, l));
+    recentlyProcessedLogs.forEach(l => map.set(l.id, l));
+    return Array.from(map.values()).sort((a, b) => b.date.localeCompare(a.date));
+  }, [localProcessedLogs, recentlyProcessedLogs]);
 
   const filteredSmPendingList = smPendingList.filter((l) => {
     const engineer = getUser(users, l.engEmail);
@@ -504,6 +552,8 @@ export function StoreManagerPages({
     if (processingProductivityIds.includes(logId)) return;
     setProcessingProductivityIds((prev) => [...prev, logId]);
 
+    const targetLog = productivityLogs.find(l => l.id === logId);
+
     setTimeout(() => {
       const updated = productivityLogs.map(l => {
         if (l.id === logId) {
@@ -515,6 +565,11 @@ export function StoreManagerPages({
         }
         return l;
       });
+      if (targetLog) {
+        const updatedLog = { ...targetLog, status: action, adminNote: note };
+        setRecentlyProcessedLogs(prev => [...prev, updatedLog]);
+        setProcessedLogsCount(prev => prev + 1);
+      }
       onUpdateLogs(updated);
       onAddToast(action === 'Validated by SM' ? 'Entry successfully validated and forwarded to Admin!' : 'Log rejected and sent back to Engineer.', 'success');
       setSmNotes(prev => {
@@ -2551,7 +2606,7 @@ export function StoreManagerPages({
                 : 'border-transparent text-slate-400 hover:text-slate-600'
             }`}
           >
-            Processed History ({smDoneList.length})
+            Processed History ({processedLogsCount})
           </button>
         </div>
 
@@ -2803,7 +2858,16 @@ export function StoreManagerPages({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredSmDoneList.length === 0 ? (
+                  {isLoadingProcessedLogs ? (
+                    <tr>
+                      <td colSpan={8} className="text-center py-8 text-slate-400">
+                        <div className="flex items-center justify-center gap-2">
+                          <div className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+                          <span>Loading processed history...</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : filteredSmDoneList.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="text-center py-6 text-slate-400">
                         {smDoneList.length > 0 ? 'No results matching your filters.' : 'No logs have been validated or rejected yet.'}
