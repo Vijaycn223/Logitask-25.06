@@ -589,53 +589,17 @@ export default function App() {
         where('orgId', '==', userOrgId),
         where('status', '==', 'Pending')
       );
-      const qProcessed = query(
-        collection(db, 'stockRequests'),
-        where('orgId', '==', userOrgId),
-        where('status', 'in', ['Approved', 'Rejected']),
-        where('date', '>=', `${selectedSMMonth}-01`),
-        where('date', '<=', `${selectedSMMonth}-31`)
-      );
-
-      const reqsMap: Record<string, StockRequest> = {};
-
-      const updateReqs = () => {
-        const list = Object.values(reqsMap);
+      unsubStockReqs = onSnapshot(qPending, (snapshot) => {
+        const list: StockRequest[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as StockRequest);
+        });
         setStockRequests((prev) => {
           if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
           localStorage.setItem(STORAGE_KEYS.STOCK_REQS, JSON.stringify(list));
           return list;
         });
-      };
-
-      const unsubReqs1 = onSnapshot(qPending, (snapshot) => {
-        Object.keys(reqsMap).forEach((id) => {
-          if (reqsMap[id].status === 'Pending' && !snapshot.docs.some(doc => doc.id === id)) {
-            delete reqsMap[id];
-          }
-        });
-        snapshot.forEach((doc) => {
-          reqsMap[doc.id] = doc.data() as StockRequest;
-        });
-        updateReqs();
       }, (error) => handleFirestoreError(error, OperationType.GET, 'stockRequests'));
-
-      const unsubReqs2 = onSnapshot(qProcessed, (snapshot) => {
-        Object.keys(reqsMap).forEach((id) => {
-          if (['Approved', 'Rejected'].includes(reqsMap[id].status) && !snapshot.docs.some(doc => doc.id === id)) {
-            delete reqsMap[id];
-          }
-        });
-        snapshot.forEach((doc) => {
-          reqsMap[doc.id] = doc.data() as StockRequest;
-        });
-        updateReqs();
-      }, (error) => handleFirestoreError(error, OperationType.GET, 'stockRequests'));
-
-      unsubStockReqs = () => {
-        unsubReqs1();
-        unsubReqs2();
-      };
     } else if (role === 'Engineer') {
       const q = query(collection(db, 'stockRequests'), where('orgId', '==', userOrgId), where('engEmail', '==', currentUser.email));
       unsubStockReqs = onSnapshot(q, (snapshot) => {
@@ -1473,6 +1437,34 @@ export default function App() {
     return snapshot.data().count;
   };
 
+  const handleFetchProcessedStockRequests = async () => {
+    const qProcessed = query(
+      collection(db, 'stockRequests'),
+      where('orgId', '==', currentUser?.orgId || ''),
+      where('status', 'in', ['Approved', 'Rejected']),
+      where('date', '>=', `${selectedSMMonth}-01`),
+      where('date', '<=', `${selectedSMMonth}-31`)
+    );
+    const snap = await getDocs(qProcessed);
+    const list: StockRequest[] = [];
+    snap.forEach((doc) => {
+      list.push(doc.data() as StockRequest);
+    });
+    return list;
+  };
+
+  const handleFetchProcessedStockRequestsCount = async () => {
+    const qProcessed = query(
+      collection(db, 'stockRequests'),
+      where('orgId', '==', currentUser?.orgId || ''),
+      where('status', 'in', ['Approved', 'Rejected']),
+      where('date', '>=', `${selectedSMMonth}-01`),
+      where('date', '<=', `${selectedSMMonth}-31`)
+    );
+    const snapshot = await getCountFromServer(qProcessed);
+    return snapshot.data().count;
+  };
+
 
 
   if (!currentUser) {
@@ -1924,6 +1916,8 @@ export default function App() {
                   onFetchHistoricalLedger={handleFetchHistoricalLedger}
                   onFetchProcessedLogs={handleFetchProcessedLogs}
                   onFetchProcessedLogsCount={handleFetchProcessedLogsCount}
+                  onFetchProcessedStockRequests={handleFetchProcessedStockRequests}
+                  onFetchProcessedStockRequestsCount={handleFetchProcessedStockRequestsCount}
                   onAddVendor={(v) => syncState('fieldops_vendors', [...vendors, { ...v, orgId: userOrgId }], setVendors)}
                   returnRequests={filteredReturnRequests}
                   activeTab={activeTab}

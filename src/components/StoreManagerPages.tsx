@@ -78,6 +78,8 @@ interface StoreManagerPagesProps {
   onFetchHistoricalLedger?: (supplierName: string) => Promise<{ purchases: PurchaseInward[], debits: SupplierDebit[] }>;
   onFetchProcessedLogs?: () => Promise<ProductivityLog[]>;
   onFetchProcessedLogsCount?: () => Promise<number>;
+  onFetchProcessedStockRequests?: () => Promise<StockRequest[]>;
+  onFetchProcessedStockRequestsCount?: () => Promise<number>;
 }
 
 export function StoreManagerPages({
@@ -120,6 +122,8 @@ export function StoreManagerPages({
   onFetchHistoricalLedger,
   onFetchProcessedLogs,
   onFetchProcessedLogsCount,
+  onFetchProcessedStockRequests,
+  onFetchProcessedStockRequestsCount,
 }: StoreManagerPagesProps) {
   const currentMonthPrefix = getMonthRange().prefix;
 
@@ -166,6 +170,44 @@ export function StoreManagerPages({
         });
     }
   }, [smQueueTab, selectedSMMonth, onFetchProcessedLogs]);
+
+  // On-demand processed stock requests states
+  const [localProcessedStockRequests, setLocalProcessedStockRequests] = useState<StockRequest[]>([]);
+  const [recentlyProcessedStockRequests, setRecentlyProcessedStockRequests] = useState<StockRequest[]>([]);
+  const [processedStockRequestsCount, setProcessedStockRequestsCount] = useState<number>(0);
+  const [isLoadingProcessedStockRequests, setIsLoadingProcessedStockRequests] = useState(false);
+
+  // Sync count on load/month-switch and reset history cache for stock requests
+  React.useEffect(() => {
+    setLocalProcessedStockRequests([]);
+    setRecentlyProcessedStockRequests([]);
+    if (!onFetchProcessedStockRequestsCount) return;
+    onFetchProcessedStockRequestsCount()
+      .then((count) => {
+        setProcessedStockRequestsCount(count);
+      })
+      .catch((err) => {
+        console.error('Failed to fetch processed stock requests count:', err);
+      });
+  }, [selectedSMMonth, onFetchProcessedStockRequestsCount]);
+
+  // Fetch actual processed requests on-demand when user clicks Processed tab
+  React.useEffect(() => {
+    if (srActiveTab === 'processed' && localProcessedStockRequests.length === 0 && onFetchProcessedStockRequests) {
+      setIsLoadingProcessedStockRequests(true);
+      onFetchProcessedStockRequests()
+        .then((reqs) => {
+          setLocalProcessedStockRequests(reqs);
+        })
+        .catch((err) => {
+          console.error('Failed to fetch processed stock requests:', err);
+          onAddToast('Failed to load processed requests history', 'error');
+        })
+        .finally(() => {
+          setIsLoadingProcessedStockRequests(false);
+        });
+    }
+  }, [srActiveTab, selectedSMMonth, onFetchProcessedStockRequests]);
   const [selectedPONumbers, setSelectedPONumbers] = useState<Record<string, string>>({});
   const [poReceivedValues, setPoReceivedValues] = useState<Record<string, string>>({});
   const [editingInwardId, setEditingInwardId] = useState<string | null>(null);
@@ -493,6 +535,14 @@ export function StoreManagerPages({
     if (processingStockRequestIds.includes(id)) return;
     setProcessingStockRequestIds((prev) => [...prev, id]);
 
+    const targetReq = stockRequests.find(r => r.id === id);
+    if (targetReq) {
+      setRecentlyProcessedStockRequests((prev) => [
+        ...prev.filter((x) => x.id !== id),
+        { ...targetReq, status }
+      ]);
+    }
+
     setTimeout(() => {
       onApproveStockRequest(id, status);
       setProcessingStockRequestIds((prev) => prev.filter((x) => x !== id));
@@ -610,7 +660,12 @@ export function StoreManagerPages({
   const [srSelectedSku, setSrSelectedSku] = useState('');
   const [srSelectedStatus, setSrSelectedStatus] = useState('');
 
-  const processedRequests = stockRequests.filter((r) => r.status !== 'Pending');
+  const processedRequests = React.useMemo(() => {
+    const map = new Map<string, StockRequest>();
+    localProcessedStockRequests.forEach(r => map.set(r.id, r));
+    recentlyProcessedStockRequests.forEach(r => map.set(r.id, r));
+    return Array.from(map.values());
+  }, [localProcessedStockRequests, recentlyProcessedStockRequests]);
 
   const filteredPendingRequests = pendingRequests.filter((r) => {
     const engineer = getUser(users, r.engEmail);
@@ -1358,7 +1413,7 @@ export function StoreManagerPages({
                 : 'border-transparent text-slate-400 hover:text-slate-600'
             }`}
           >
-            Processed ({processedRequests.length})
+            Processed ({processedStockRequestsCount + recentlyProcessedStockRequests.filter(r => !localProcessedStockRequests.some(x => x.id === r.id)).length})
           </button>
           <button
             onClick={() => setSrActiveTab('returns')}
@@ -1591,7 +1646,16 @@ export function StoreManagerPages({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredProcessedRequests.length === 0 ? (
+                  {isLoadingProcessedStockRequests ? (
+                    <tr>
+                      <td colSpan={8} className="text-center py-8 text-slate-400">
+                        <div className="flex items-center justify-center gap-2">
+                          <div className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+                          <span>Loading processed stock requests...</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : filteredProcessedRequests.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="text-center py-6 text-slate-400">
                         {processedRequests.length > 0 ? 'No results matching your filters.' : 'No historical requests found.'}
