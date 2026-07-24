@@ -40,6 +40,8 @@ import { POTrackerView } from './POTrackerView';
 
 interface StoreManagerPagesProps {
   currentUser: User;
+  selectedSMMonth: string;
+  setSelectedSMMonth: (m: string) => void;
   users: User[];
   skus: SKU[];
   inventory: InventoryItem[];
@@ -77,6 +79,8 @@ interface StoreManagerPagesProps {
 
 export function StoreManagerPages({
   currentUser,
+  selectedSMMonth,
+  setSelectedSMMonth,
   users,
   skus,
   inventory,
@@ -111,6 +115,8 @@ export function StoreManagerPages({
   onUpdateSkus,
   onUpdateInventory,
 }: StoreManagerPagesProps) {
+  const currentMonthPrefix = getMonthRange().prefix;
+
   // Store Manager Approvals Local Tab State
   const [smQueueTab, setSmQueueTab] = useState<'pending' | 'done'>('pending');
   const [smNotes, setSmNotes] = useState<Record<string, string>>({});
@@ -1259,9 +1265,20 @@ export function StoreManagerPages({
             <h1 className="font-display text-2xl font-extrabold text-slate-950">Engineer Stock Requests</h1>
             <p className="text-sm font-medium text-slate-400">Fulfill truck item allocations or recall excess materials</p>
           </div>
-          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 border border-amber-200 px-3 py-1 text-xs font-bold text-amber-800">
-            {pendingRequests.length} pending
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 border border-amber-200 px-3 py-1 text-xs font-bold text-amber-800">
+              {pendingRequests.length} pending
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Select Month</span>
+              <input
+                type="month"
+                value={selectedSMMonth}
+                onChange={(e) => setSelectedSMMonth(e.target.value || currentMonthPrefix)}
+                className="rounded-xl border border-slate-200 bg-white py-1.5 px-3 text-xs font-semibold text-slate-700 outline-none transition focus:border-indigo-650 focus:ring-2 focus:ring-indigo-100"
+              />
+            </div>
+          </div>
         </div>
 
         {/* Selection Headers */}
@@ -2496,9 +2513,20 @@ export function StoreManagerPages({
   if (activeTab === 'store-approvals') {
     return (
       <div className="space-y-6">
-        <div>
-          <h1 className="font-display text-2xl font-extrabold text-slate-950">Store Approvals Queue</h1>
-          <p className="text-sm font-medium text-slate-400">Validate Engineer logging performance following Team Leader validation</p>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="font-display text-2xl font-extrabold text-slate-950">Store Approvals Queue</h1>
+            <p className="text-sm font-medium text-slate-400">Validate Engineer logging performance following Team Leader validation</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Select Month</span>
+            <input
+              type="month"
+              value={selectedSMMonth}
+              onChange={(e) => setSelectedSMMonth(e.target.value || currentMonthPrefix)}
+              className="rounded-xl border border-slate-200 bg-white py-1.5 px-3 text-xs font-semibold text-slate-700 outline-none transition focus:border-indigo-650 focus:ring-2 focus:ring-indigo-100"
+            />
+          </div>
         </div>
 
         {/* Local Queue Tabs */}

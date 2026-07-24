@@ -208,6 +208,7 @@ export default function App() {
   // Authenticated state
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [selectedTLMonth, setSelectedTLMonth] = useState<string>(() => getMonthRange().prefix);
+  const [selectedSMMonth, setSelectedSMMonth] = useState<string>(() => getMonthRange().prefix);
   const [activeTab, setActiveTab] = useState<string>('');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -389,7 +390,7 @@ export default function App() {
 
     let unsubEngStock = () => {};
     if (['Super Admin', 'Admin', 'Store Manager'].includes(role)) {
-      unsubEngStock = onSnapshot(collection(db, 'engineerStock'), (snapshot) => {
+      unsubEngStock = onSnapshot(getTenantQuery('engineerStock'), (snapshot) => {
         const obj: EngineerStock = {};
         snapshot.forEach((doc) => {
           const data = doc.data();
@@ -421,7 +422,7 @@ export default function App() {
     }
 
     let unsubLogs = () => {};
-    if (['Super Admin', 'Admin', 'Store Manager'].includes(role)) {
+    if (['Super Admin', 'Admin'].includes(role)) {
       unsubLogs = onSnapshot(getTenantQuery('productivityLogs'), (snapshot) => {
         const list: ProductivityLog[] = [];
         snapshot.forEach((doc) => {
@@ -433,6 +434,59 @@ export default function App() {
           return list;
         });
       }, (error) => handleFirestoreError(error, OperationType.GET, 'productivityLogs'));
+    } else if (role === 'Store Manager') {
+      const qPending = query(
+        collection(db, 'productivityLogs'),
+        where('orgId', '==', userOrgId),
+        where('status', '==', 'Validated by TL')
+      );
+      const qProcessed = query(
+        collection(db, 'productivityLogs'),
+        where('orgId', '==', userOrgId),
+        where('status', 'in', ['Validated by SM', 'Approved', 'Rejected']),
+        where('date', '>=', `${selectedSMMonth}-01`),
+        where('date', '<=', `${selectedSMMonth}-31`)
+      );
+
+      const logsMap: Record<string, ProductivityLog> = {};
+
+      const updateLogs = () => {
+        const list = Object.values(logsMap);
+        setProductivityLogs((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(list));
+          return list;
+        });
+      };
+
+      const unsubLogs1 = onSnapshot(qPending, (snapshot) => {
+        Object.keys(logsMap).forEach((id) => {
+          if (logsMap[id].status === 'Validated by TL' && !snapshot.docs.some(doc => doc.id === id)) {
+            delete logsMap[id];
+          }
+        });
+        snapshot.forEach((doc) => {
+          logsMap[doc.id] = doc.data() as ProductivityLog;
+        });
+        updateLogs();
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'productivityLogs'));
+
+      const unsubLogs2 = onSnapshot(qProcessed, (snapshot) => {
+        Object.keys(logsMap).forEach((id) => {
+          if (['Validated by SM', 'Approved', 'Rejected'].includes(logsMap[id].status) && !snapshot.docs.some(doc => doc.id === id)) {
+            delete logsMap[id];
+          }
+        });
+        snapshot.forEach((doc) => {
+          logsMap[doc.id] = doc.data() as ProductivityLog;
+        });
+        updateLogs();
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'productivityLogs'));
+
+      unsubLogs = () => {
+        unsubLogs1();
+        unsubLogs2();
+      };
     } else if (role === 'Team Leader') {
       const qPending = query(
         collection(db, 'productivityLogs'),
@@ -553,7 +607,7 @@ export default function App() {
     }
 
     let unsubStockReqs = () => {};
-    if (['Super Admin', 'Admin', 'Store Manager'].includes(role)) {
+    if (['Super Admin', 'Admin'].includes(role)) {
       unsubStockReqs = onSnapshot(getTenantQuery('stockRequests'), (snapshot) => {
         const list: StockRequest[] = [];
         snapshot.forEach((doc) => {
@@ -565,6 +619,59 @@ export default function App() {
           return list;
         });
       }, (error) => handleFirestoreError(error, OperationType.GET, 'stockRequests'));
+    } else if (role === 'Store Manager') {
+      const qPending = query(
+        collection(db, 'stockRequests'),
+        where('orgId', '==', userOrgId),
+        where('status', '==', 'Pending')
+      );
+      const qProcessed = query(
+        collection(db, 'stockRequests'),
+        where('orgId', '==', userOrgId),
+        where('status', 'in', ['Approved', 'Rejected']),
+        where('date', '>=', `${selectedSMMonth}-01`),
+        where('date', '<=', `${selectedSMMonth}-31`)
+      );
+
+      const reqsMap: Record<string, StockRequest> = {};
+
+      const updateReqs = () => {
+        const list = Object.values(reqsMap);
+        setStockRequests((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          localStorage.setItem(STORAGE_KEYS.STOCK_REQS, JSON.stringify(list));
+          return list;
+        });
+      };
+
+      const unsubReqs1 = onSnapshot(qPending, (snapshot) => {
+        Object.keys(reqsMap).forEach((id) => {
+          if (reqsMap[id].status === 'Pending' && !snapshot.docs.some(doc => doc.id === id)) {
+            delete reqsMap[id];
+          }
+        });
+        snapshot.forEach((doc) => {
+          reqsMap[doc.id] = doc.data() as StockRequest;
+        });
+        updateReqs();
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'stockRequests'));
+
+      const unsubReqs2 = onSnapshot(qProcessed, (snapshot) => {
+        Object.keys(reqsMap).forEach((id) => {
+          if (['Approved', 'Rejected'].includes(reqsMap[id].status) && !snapshot.docs.some(doc => doc.id === id)) {
+            delete reqsMap[id];
+          }
+        });
+        snapshot.forEach((doc) => {
+          reqsMap[doc.id] = doc.data() as StockRequest;
+        });
+        updateReqs();
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'stockRequests'));
+
+      unsubStockReqs = () => {
+        unsubReqs1();
+        unsubReqs2();
+      };
     } else if (role === 'Engineer') {
       const q = query(collection(db, 'stockRequests'), where('orgId', '==', userOrgId), where('engEmail', '==', currentUser.email));
       unsubStockReqs = onSnapshot(q, (snapshot) => {
@@ -786,7 +893,7 @@ export default function App() {
       unsubVendors();
       unsubSales();
     };
-  }, [currentUser, offlineMode, selectedTLMonth]);
+  }, [currentUser, offlineMode, selectedTLMonth, selectedSMMonth]);
 
   // Self-healing: Ensure all approved productivity logs are synced to the attendance register
   useEffect(() => {
@@ -1698,6 +1805,8 @@ export default function App() {
               return (
                 <StoreManagerPages
                   currentUser={currentUser}
+                  selectedSMMonth={selectedSMMonth}
+                  setSelectedSMMonth={setSelectedSMMonth}
                   users={filteredUsers}
                   skus={filteredSkus}
                   inventory={filteredInventory}
