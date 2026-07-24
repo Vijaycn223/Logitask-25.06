@@ -1620,6 +1620,9 @@ export default function App() {
             const currentOrgUsersByMail = new Set(
               users.filter(u => isSuperAdmin || u.orgId === userOrgId).map(u => u.email.toLowerCase())
             );
+            if (currentUser.email) {
+              currentOrgUsersByMail.add(currentUser.email.toLowerCase());
+            }
 
             const filteredUsers = isSuperAdmin ? users : users.filter(u => u.orgId === userOrgId);
             const filteredSkus = isSuperAdmin ? skus : skus.filter(s => s.orgId === userOrgId);
